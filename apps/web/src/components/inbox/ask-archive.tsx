@@ -120,16 +120,16 @@ export function AskArchive() {
                 From these conversations
               </p>
               <div className="divide-y rounded-xl border">
-                {sources.map((s, i) => (
+                {sources.map((s) => (
                   <Link
-                    key={s.conversationId}
+                    key={s.index}
                     href={`/inbox/${s.conversationId}`}
                     className={cn(
                       'flex items-start gap-2.5 px-3 py-2.5 transition-colors hover:bg-accent/60',
                     )}
                   >
                     <span className="type-caption tabular mt-0.5 shrink-0 text-muted-foreground/60">
-                      [{i + 1}]
+                      [{s.index}]
                     </span>
                     <span className="min-w-0">
                       <span className="type-title block truncate">{s.conversationName}</span>

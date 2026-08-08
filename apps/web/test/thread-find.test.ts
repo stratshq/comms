@@ -7,8 +7,23 @@ describe('findOffsets', () => {
     expect(findOffsets('Cat cat CAT', 'cat')).toEqual([0, 4, 8]);
   });
 
-  it('counts overlapping matches — both are places to jump to', () => {
-    expect(findOffsets('aaa', 'aa')).toEqual([0, 1]);
+  it('does not report overlapping matches', () => {
+    // It must agree with highlightRuns, which cannot render two runs over the
+    // same characters — a counted hit with no highlight makes "3 of 5" a lie.
+    expect(findOffsets('aaa', 'aa')).toEqual([0]);
+    expect(findOffsets('aaaa', 'aa')).toEqual([0, 2]);
+  });
+
+  it('agrees with highlightRuns on how many matches there are', () => {
+    for (const [text, needle] of [
+      ['aaa', 'aa'],
+      ['aaaa', 'aa'],
+      ['ababab', 'ab'],
+      ['Cat cat CAT', 'cat'],
+    ] as const) {
+      const marked = highlightRuns(text, needle).filter((r) => r.match).length;
+      expect(marked, `${text} / ${needle}`).toBe(findOffsets(text, needle).length);
+    }
   });
 
   it('returns nothing for an empty needle rather than one match per character', () => {
@@ -33,6 +48,7 @@ describe('highlightRuns', () => {
     // Any drop or duplication here silently corrupts a rendered message.
     const cases: Array<[string, string]> = [
       ['aaa', 'aa'],
+      ['aaaa', 'aa'],
       ['Cat cat CAT', 'cat'],
       ['hello', 'hello'],
       ['no match here', 'zz'],

@@ -92,8 +92,10 @@ export function Composer({
   const [pending, start] = useTransition();
   const ref = useRef<HTMLTextAreaElement>(null);
   const lastTypingPing = useRef(0);
-  /** Set once the user has acknowledged a collision, so we ask only once. */
+  /** Set once the user has ACKNOWLEDGED a collision, so we ask only once. */
   const confirmedCollision = useRef(false);
+  /** Always the current render's submit — see the collision toast. */
+  const submitRef = useRef<(scheduledFor?: Date) => void>(() => {});
   /** Inline completion shown after the caret; Tab accepts it. */
   const [completion, setCompletion] = useState('');
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -164,6 +166,9 @@ export function Composer({
     setBody(initialDraft?.body ?? '');
     setIsNote(initialDraft?.isPrivateNote ?? false);
     setShared(Boolean(initialDraft?.shared));
+    // Acknowledging a collision in one conversation must not disarm the
+    // warning in the next one.
+    confirmedCollision.current = false;
   }, [conversationId, initialDraft]);
 
   /**
@@ -190,7 +195,7 @@ export function Composer({
   // draft would hurt most. keepalive lets the request outlive the page.
   useEffect(() => {
     const flush = () => {
-      if (body === savedBody.current) return;
+      if (body === savedBody.current && isNote === savedIsNote.current) return;
       navigator.sendBeacon?.(
         '/api/drafts',
         new Blob([JSON.stringify({ conversationId, body, isPrivateNote: isNote })], {
@@ -249,8 +254,14 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
-  }, [body]);
+    // Measured against the GHOST as well: a completion that wraps onto a new
+    // line would otherwise be clipped out of sight while Tab still accepted it.
+    const needed = Math.max(el.scrollHeight, ghostRef.current?.scrollHeight ?? 0);
+    el.style.height = `${Math.min(needed, 180)}px`;
+    // A ghost that mounts while the field is already scrolled must start at the
+    // same offset; the scroll event alone never fires in that case.
+    syncGhostScroll();
+  }, [body, completion]);
 
   function submit(scheduledFor?: Date) {
     const trimmed = body.trim();
@@ -259,10 +270,19 @@ export function Composer({
     // Confirm rather than block. The person at the keyboard may know exactly
     // what they are doing — but they should have to say so, once.
     if (typingPeers.length > 0 && !isNote && !confirmedCollision.current) {
-      confirmedCollision.current = true;
       toast.warning(`${firstNames(typingPeers)} is also replying`, {
         description: 'Send anyway?',
-        action: { label: 'Send', onClick: () => submit(scheduledFor) },
+        action: {
+          label: 'Send',
+          // Through a ref, NOT the captured `submit`. Sonner freezes the
+          // handler at raise time, so calling the closure directly sent the
+          // body as it was when the toast appeared and discarded everything
+          // typed during the eight seconds it was on screen.
+          onClick: () => {
+            confirmedCollision.current = true;
+            submitRef.current(scheduledFor);
+          },
+        },
         duration: 8000,
       });
       return;
@@ -283,6 +303,10 @@ export function Composer({
       }
     });
   }
+
+  // Rebound every render so the collision toast, which captured its handler
+  // once, always reaches the current body.
+  submitRef.current = submit;
 
   /**
    * Share (or unshare) the current draft with the team. The draft is flushed
@@ -589,7 +613,7 @@ export function Composer({
               <div
                 ref={ghostRef}
                 aria-hidden
-                className="pointer-events-none absolute inset-0 max-h-[180px] overflow-hidden whitespace-pre-wrap break-words px-1.5 py-1.5 text-[13.5px] leading-[inherit]"
+                className="pointer-events-none absolute left-0 right-0 top-0 max-h-[180px] overflow-hidden whitespace-pre-wrap break-words px-1.5 py-1.5 text-[13.5px] leading-[inherit] md:text-[13.5px]"
               >
                 <span className="invisible">{body}</span>
                 <span className="text-muted-foreground/50">{completion}</span>
@@ -610,7 +634,7 @@ export function Composer({
                   ? 'Type a message…  ⇥ to accept the suggested reply'
                   : 'Type a message…  /  for macros'
             }
-            className="relative max-h-[180px] min-h-[38px] w-full resize-none border-0 bg-transparent px-1.5 py-1.5 text-[13.5px] shadow-none focus-visible:ring-0"
+            className="relative max-h-[180px] min-h-[38px] w-full resize-none border-0 bg-transparent px-1.5 py-1.5 text-[13.5px] shadow-none focus-visible:ring-0 md:text-[13.5px]"
             rows={1}
           />
           </div>

@@ -122,6 +122,42 @@ describe('calendar dates', () => {
   });
 });
 
+describe('regressions found in review', () => {
+  it('does not read a year as a clock time', () => {
+    // "2025" matched \d{1,2} + \d{2} and became 20:25.
+    const d = parse('mar 4 2026')!;
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(2);
+    expect(d.getDate()).toBe(4);
+    expect(d.getHours()).toBe(9); // the default, not 20
+  });
+
+  it('does not read the minutes of a clock time as the day of the month', () => {
+    // "mar 9:30" rejected the 9 for having a colon, then took the 30 as a day.
+    const d = parse('mar 9:30am')!;
+    expect(d.getHours()).toBe(9);
+    expect(d.getMinutes()).toBe(30);
+    expect(d.getDate()).not.toBe(30);
+  });
+
+  it('does not resolve prototype keys as weekdays or units', () => {
+    // 'constructor' in WEEKDAYS was true, producing an Invalid Date that threw
+    // downstream in toISOString().
+    for (const s of ['constructor', 'toString', 'in 5 constructor', '__proto__']) {
+      const d = parse(s);
+      expect(d === null || !Number.isNaN(d.getTime()), s).toBe(true);
+    }
+  });
+
+  it('never returns an Invalid Date for any input', () => {
+    const inputs = ['constructor', 'valueOf', 'in 3 hasOwnProperty', 'mar 99', 'feb 30 2026'];
+    for (const s of inputs) {
+      const d = parse(s);
+      if (d) expect(Number.isNaN(d.getTime()), s).toBe(false);
+    }
+  });
+});
+
 describe('refusing to guess', () => {
   it('returns null for junk rather than a plausible wrong time', () => {
     // A wrong snooze time is worse than being asked to pick one.

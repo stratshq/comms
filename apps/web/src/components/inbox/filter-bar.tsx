@@ -186,6 +186,8 @@ export function FilterBar({
       const res = await createSavedView({
         name: viewName,
         display,
+        // asViewFilters carries everything main's inline object did, plus the
+        // team / kind / bodyContains axes.
         filters: asViewFilters(),
       });
       if (res.ok) {

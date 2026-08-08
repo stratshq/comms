@@ -24,9 +24,11 @@ export function findOffsets(haystack: string, needle: string): number[] {
     const at = hay.indexOf(pin, from);
     if (at === -1) return out;
     out.push(at);
-    // Advance by one, not by the needle length: overlapping matches ("aa" in
-    // "aaa") are still two places a person would expect to be taken to.
-    from = at + 1;
+    // Advance by the needle length so this agrees exactly with highlightRuns,
+    // which cannot render overlapping matches without duplicating the
+    // characters they share. Counting a hit that has no highlight to jump to
+    // makes "3 of 5" a lie.
+    from = at + pin.length;
   }
 }
 
@@ -42,7 +44,7 @@ export function highlightRuns(
   const runs: Array<{ text: string; match: boolean }> = [];
   let cursor = 0;
   for (const at of offsets) {
-    // Overlapping matches would double-render the same characters.
+    // findOffsets no longer emits overlaps; this keeps the invariant local.
     if (at < cursor) continue;
     if (at > cursor) runs.push({ text: text.slice(cursor, at), match: false });
     runs.push({ text: text.slice(at, at + needle.length), match: true });

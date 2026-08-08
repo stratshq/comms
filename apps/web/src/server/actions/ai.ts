@@ -94,7 +94,17 @@ export async function suggestReplyAction(conversationId: string): Promise<AiResu
   }
 }
 
+/** Words too common to be worth treating as somebody's name. */
+const STOP_WORDS = new Set([
+  'what','when','where','who','why','how','did','does','do','the','and','for','about','with',
+  'that','this','from','they','them','their','said','say','says','tell','told','was','were',
+  'his','her','our','your','you','are','can','could','would','should','has','have','had','any',
+  'all','get','got','me','my','it','is','on','in','of','to','at','a','an','last','ago','back',
+]);
+
 export interface ArchiveSource {
+  /** The citation number used in the answer text — NOT a list position. */
+  index: number;
   conversationId: string;
   conversationName: string;
   at: string;
@@ -123,11 +133,30 @@ export async function askArchiveAction(question: string): Promise<AskResult> {
   if (q.length < 3) return { ok: false, error: 'Ask a longer question.' };
 
   // Conversations belonging to a person named in the question.
-  const namedContacts = await db
-    .select({ id: contacts.id, name: contacts.displayName })
-    .from(contacts)
-    .where(sql`${contacts.displayName} % ${q}`)
-    .limit(5);
+  // Compared word by word, not against the whole sentence: trigram similarity
+  // is length-normalised, so `displayName % 'what did sarah say about the
+  // deposit'` never clears the threshold and this path silently never fired.
+  const words = Array.from(
+    new Set(
+      q
+        .toLowerCase()
+        .split(/[^a-z']+/i)
+        .filter((w) => w.length >= 3 && !STOP_WORDS.has(w)),
+    ),
+  ).slice(0, 8);
+
+  const namedContacts = words.length
+    ? await db
+        .select({ id: contacts.id, name: contacts.displayName })
+        .from(contacts)
+        .where(
+          sql.join(
+            words.map((w) => sql`${contacts.displayName} ilike ${'%' + w + '%'}`),
+            sql` or `,
+          ),
+        )
+        .limit(5)
+    : [];
 
   // Parameterized rather than interpolated. These ids come from our own table,
   // but building SQL by string concatenation is a habit worth not having.
@@ -184,23 +213,26 @@ export async function askArchiveAction(question: string): Promise<AskResult> {
     body: (r.body ?? '').slice(0, 600),
   }));
 
-  const { answer, usedConversationIds } = await answerFromArchive({ question: q, excerpts });
+  const { answer, citedIndexes } = await answerFromArchive({ question: q, excerpts });
 
-  // Only surface the conversations the model actually cited; listing all forty
-  // would bury the two that mattered.
-  const cited = new Set(usedConversationIds);
-  const seen = new Set<string>();
-  const sources: ArchiveSource[] = [];
-  for (const e of excerpts) {
-    if (!cited.has(e.conversationId) || seen.has(e.conversationId)) continue;
-    seen.add(e.conversationId);
-    sources.push({
-      conversationId: e.conversationId,
-      conversationName: e.conversationName,
-      at: e.at,
-      snippet: e.body.slice(0, 160),
-    });
-  }
+  // Only the excerpts the model actually cited, KEYED BY THE NUMBER IT USED.
+  // Renumbering from 1 made every [n] in the answer point at the wrong row,
+  // which is worse than showing no sources at all — the whole promise of this
+  // feature is that you can check it.
+  const sources: ArchiveSource[] = citedIndexes
+    .map((n) => {
+      const e = excerpts[n - 1];
+      return e
+        ? {
+            index: n,
+            conversationId: e.conversationId,
+            conversationName: e.conversationName,
+            at: e.at,
+            snippet: e.body.slice(0, 160),
+          }
+        : null;
+    })
+    .filter((s): s is ArchiveSource => s !== null);
 
   return { ok: true, answer, sources };
 }

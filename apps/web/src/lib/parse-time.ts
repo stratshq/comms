@@ -17,7 +17,7 @@
  *    than being asked to pick.
  */
 
-const WEEKDAYS: Record<string, number> = {
+const WEEKDAYS: Record<string, number> = Object.assign(Object.create(null), {
   sun: 0, sunday: 0,
   mon: 1, monday: 1,
   tue: 2, tues: 2, tuesday: 2,
@@ -25,9 +25,9 @@ const WEEKDAYS: Record<string, number> = {
   thu: 4, thur: 4, thurs: 4, thursday: 4,
   fri: 5, friday: 5,
   sat: 6, saturday: 6,
-};
+});
 
-const MONTHS: Record<string, number> = {
+const MONTHS: Record<string, number> = Object.assign(Object.create(null), {
   jan: 0, january: 0,
   feb: 1, february: 1,
   mar: 2, march: 2,
@@ -40,14 +40,14 @@ const MONTHS: Record<string, number> = {
   oct: 9, october: 9,
   nov: 10, november: 10,
   dec: 11, december: 11,
-};
+});
 
-const UNIT_MS: Record<string, number> = {
+const UNIT_MS: Record<string, number> = Object.assign(Object.create(null), {
   m: 60_000, min: 60_000, mins: 60_000, minute: 60_000, minutes: 60_000,
   h: 3_600_000, hr: 3_600_000, hrs: 3_600_000, hour: 3_600_000, hours: 3_600_000,
   d: 86_400_000, day: 86_400_000, days: 86_400_000,
   w: 604_800_000, week: 604_800_000, weeks: 604_800_000,
-};
+});
 
 /** Default hour when a day is named without a time. */
 const DEFAULT_HOUR = 9;
@@ -72,7 +72,9 @@ function extractTime(input: string): { time: TimeOfDay | null; rest: string } {
     return { time: { hour, minute: 0 }, rest: input.replace(named[0], ' ') };
   }
 
-  const m = input.match(/\b(\d{1,2})(?::|\.)?(\d{2})?\s*(am|pm)?\b/);
+  // The trailing (?!\d) matters: without it a bare year like "2025" matches as
+  // 20:25, so "mar 4 2025" silently became 8:25pm.
+  const m = input.match(/\b(\d{1,2})(?::|\.)?(\d{2})?\s*(am|pm)?\b(?!\d)/);
   if (!m) return { time: null, rest: input };
 
   // A bare 1- or 2-digit number with no meridiem and no colon is only a time if
@@ -129,12 +131,22 @@ export function parseNaturalTime(input: string, now: Date = new Date()): Date | 
   let working = raw;
   let monthIdx: number | null = null;
   let dayNum: number | null = null;
-  const monthWord = working.match(/\b[a-z]{3,9}\b/g)?.find((w) => w in MONTHS);
+  let yearNum: number | null = null;
+  const monthWord = working.match(/\b[a-z]{3,9}\b/g)?.find((w) => Object.hasOwn(MONTHS, w));
   if (monthWord) {
     monthIdx = MONTHS[monthWord]!;
+    // Pull an explicit year out before anything else can claim those digits.
+    const yearMatch = working.match(/\b(19|20)\d{2}\b/);
+    if (yearMatch) {
+      yearNum = Number(yearMatch[0]);
+      working = working.replace(yearMatch[0], ' ');
+    }
     working = working.replace(new RegExp(`\\b${monthWord}\\b`), ' ');
     // A number is the day only if no meridiem or clock separator claims it.
-    const dayMatch = working.match(/\b(\d{1,2})\b(?!\s*(?:am|pm)|[:.]\d)/);
+    // The lookbehind stops the MINUTES of a clock time being read as the day:
+    // in "mar 9:30" the 9 is rejected for having a colon after it, and without
+    // this the 30 would then be accepted as the day of the month.
+    const dayMatch = working.match(/(?<![:.\d])\b(\d{1,2})\b(?!\s*(?:am|pm)|[:.]\d)/);
     if (dayMatch) {
       dayNum = Number(dayMatch[1]);
       working = working.replace(dayMatch[0], ' ');
@@ -148,10 +160,13 @@ export function parseNaturalTime(input: string, now: Date = new Date()): Date | 
   if (monthIdx !== null && dayNum !== null) {
     // Built from parts rather than mutated, so setting February on the 31st
     // cannot roll into March.
-    const at = new Date(now.getFullYear(), monthIdx, dayNum);
+    const at = new Date(yearNum ?? now.getFullYear(), monthIdx, dayNum);
     const result = atTime(at, time);
-    // A date that has already passed this year means next year.
-    if (result.getTime() <= now.getTime()) result.setFullYear(result.getFullYear() + 1);
+    // A date that has already passed means next year — but only when the year
+    // was inferred. An explicit "mar 4 2024" is a mistake, not next March.
+    if (yearNum === null && result.getTime() <= now.getTime()) {
+      result.setFullYear(result.getFullYear() + 1);
+    }
     return result;
   }
 
@@ -167,7 +182,7 @@ export function parseNaturalTime(input: string, now: Date = new Date()): Date | 
     return atTime(d, time);
   }
 
-  const dayWord = words.find((w) => w in WEEKDAYS);
+  const dayWord = words.find((w) => Object.hasOwn(WEEKDAYS, w));
   if (dayWord) {
     const target = WEEKDAYS[dayWord]!;
     const d = new Date(now);

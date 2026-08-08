@@ -81,11 +81,15 @@ const READ_NO_REPLY = sql<boolean>`exists (
     -- every such row read in bulk. Without this they would trip the filter on
     -- conversations nobody actually wrote to.
     and m.author_type <> 'system'
+    -- A tapback we sent is not "a message they read and ignored"; counting it
+    -- flagged conversations where WE owed the reply.
+    and m.reaction_type is null
     and m.read_at is not null
     and not exists (
       select 1 from ${messages} m2
       where m2.conversation_id = ${conversations.id}
         and m2.direction = 'inbound'
+        and m2.author_type <> 'system'
         and m2.created_at > m.created_at
     )
 )`;
@@ -490,6 +494,13 @@ export async function getPersonContext(
           .select({ value: contactIdentities.value, raw: contactIdentities.rawValue })
           .from(contactIdentities)
           .where(eq(contactIdentities.contactId, contactId))
+          // Phones first and deterministic: the panel treats row 0 as the
+          // primary address and infers their timezone from it, so an email
+          // sorting first would silently drop the local time.
+          .orderBy(
+            sql`case ${contactIdentities.kind} when 'phone' then 0 when 'handle' then 1 else 2 end`,
+            asc(contactIdentities.value),
+          )
       : Promise.resolve([]),
 
     db

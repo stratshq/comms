@@ -236,6 +236,9 @@ export function MessageThread({
     const out: FindMatch[] = [];
     for (const m of messages) {
       if (!m.body) continue;
+      // System events and tapbacks render as centred pills with no ref and no
+      // highlighting, so counting them produced hits that scrolled nowhere.
+      if (m.authorType === 'system' || m.reactionType) continue;
       for (const offset of findOffsets(m.body, q)) out.push({ messageId: m.id, offset });
     }
     return out;

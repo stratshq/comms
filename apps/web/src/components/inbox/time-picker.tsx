@@ -35,9 +35,31 @@ export function CustomTimePicker({
   const parsed = useMemo(() => (text.trim() ? parseNaturalTime(text) : null), [text]);
   const invalid = text.trim().length > 0 && !parsed;
 
+  const [exact, setExact] = useState('');
+  const [pickerError, setPickerError] = useState<string | null>(null);
+
   function commit() {
     const at = parseNaturalTime(text);
+    // Re-parsed at commit so "in 3 hours" means three hours from now, not from
+    // when it was typed. If that now fails, say so rather than doing nothing
+    // while the line above still shows the old successful reading.
     if (at) onPick(at);
+    else if (text.trim()) setPickerError("Couldn't read that — try “tue 9am”");
+  }
+
+  function commitExact() {
+    if (!exact) return;
+    const at = new Date(exact);
+    if (Number.isNaN(at.getTime())) {
+      setPickerError('That is not a valid date.');
+      return;
+    }
+    if (at.getTime() <= Date.now()) {
+      // Silently dropping a past value made the control look broken.
+      setPickerError('Pick a time in the future.');
+      return;
+    }
+    onPick(at);
   }
 
   return (
@@ -47,7 +69,10 @@ export function CustomTimePicker({
         <input
           ref={inputRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setPickerError(null);
+          }}
           onKeyDown={(e) => {
             // Stop Enter/Escape reaching the menu that owns this popover.
             e.stopPropagation();
@@ -85,18 +110,41 @@ export function CustomTimePicker({
             : 'Type a time, or press Enter to confirm'}
       </p>
 
-      <input
-        type="datetime-local"
-        aria-label="Pick a date and time"
-        onChange={(e) => {
-          const v = e.target.value;
-          if (!v) return;
-          const at = new Date(v);
-          if (!Number.isNaN(at.getTime()) && at.getTime() > Date.now()) onPick(at);
-        }}
-        onKeyDown={(e) => e.stopPropagation()}
-        className="type-caption h-8 w-full rounded-lg border bg-surface px-2 text-muted-foreground outline-none focus:border-brand"
-      />
+      {/* Confirmed explicitly rather than on change: a datetime-local fires as
+          soon as the fields happen to form a valid value, so committing there
+          acted on a date the user was still halfway through editing. */}
+      <div className="flex items-center gap-1.5">
+        <input
+          type="datetime-local"
+          aria-label="Pick a date and time"
+          value={exact}
+          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
+            .toISOString()
+            .slice(0, 16)}
+          onChange={(e) => {
+            setExact(e.target.value);
+            setPickerError(null);
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitExact();
+            }
+          }}
+          className="type-caption h-8 flex-1 rounded-lg border bg-surface px-2 text-muted-foreground outline-none focus:border-brand"
+        />
+        <button
+          type="button"
+          onClick={commitExact}
+          disabled={!exact}
+          className="type-caption h-8 shrink-0 rounded-lg border px-2.5 transition-colors hover:bg-accent disabled:opacity-40"
+        >
+          Set
+        </button>
+      </div>
+
+      {pickerError && <p className="type-caption px-1 text-destructive">{pickerError}</p>}
     </div>
   );
 }

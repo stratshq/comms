@@ -250,8 +250,13 @@ export interface ArchiveExcerpt {
 
 export interface ArchiveAnswer {
   answer: string;
-  /** Conversation ids the model said it used. */
-  usedConversationIds: string[];
+  /**
+   * The excerpt NUMBERS the model cited, in first-appearance order.
+   *
+   * Numbers rather than conversation ids: the answer text says [3], and the
+   * source list has to be able to say [3] too. Collapsing to ids loses that.
+   */
+  citedIndexes: number[];
 }
 
 /**
@@ -267,7 +272,10 @@ export async function answerFromArchive(input: {
   excerpts: ArchiveExcerpt[];
 }): Promise<ArchiveAnswer> {
   if (input.excerpts.length === 0) {
-    return { answer: "I couldn't find anything in your messages about that.", usedConversationIds: [] };
+    return {
+      answer: "I couldn't find anything in your messages about that.",
+      citedIndexes: [],
+    };
   }
 
   const context = input.excerpts
@@ -298,14 +306,13 @@ export async function answerFromArchive(input: {
   });
 
   const answer = extractText(res.content);
-  // Map the [n] citations back to conversations so the UI can link them.
-  const cited = new Set<string>();
+  // Keep the numbers the model used, deduped, in the order it used them.
+  const cited: number[] = [];
   for (const m of answer.matchAll(/\[(\d+)\]/g)) {
-    const idx = Number(m[1]) - 1;
-    const ex = input.excerpts[idx];
-    if (ex) cited.add(ex.conversationId);
+    const n = Number(m[1]);
+    if (n >= 1 && n <= input.excerpts.length && !cited.includes(n)) cited.push(n);
   }
-  return { answer, usedConversationIds: Array.from(cited) };
+  return { answer, citedIndexes: cited };
 }
 
 /**
