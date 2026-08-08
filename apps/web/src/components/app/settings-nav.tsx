@@ -22,6 +22,9 @@ const ADMIN = [
   { href: '/settings/automations', label: 'Automations' },
 ];
 
+/** The instance's: version, providers, runtime config, health. */
+const OTHER = [{ href: '/settings/admin', label: 'Admin panel' }];
+
 function Tab({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
     <Link
@@ -57,6 +60,14 @@ export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
             Admin
           </span>
           {ADMIN.map((item) => (
+            <Tab key={item.href} {...item} active={isActive(item.href)} />
+          ))}
+
+          <span aria-hidden className="mx-2 my-2 w-px shrink-0 bg-border" />
+          <span className="flex shrink-0 items-center pr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Other
+          </span>
+          {OTHER.map((item) => (
             <Tab key={item.href} {...item} active={isActive(item.href)} />
           ))}
         </>

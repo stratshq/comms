@@ -12,6 +12,7 @@ import {
   contacts,
   teams,
   resolvePreferences,
+  getRuntimeOverrides,
 } from '@comms/db';
 import {
   newTempGuid,
@@ -173,7 +174,11 @@ export async function sendMessage(input: {
 
   // Undo-send: real replies sit in a delayed job for the undo window; undoSend
   // removes the job by id before the worker ever sees it. Notes skip this.
-  const undoMs = input.isPrivateNote ? 0 : loadConfig().UNDO_SEND_SECONDS * 1000;
+  // The window is admin-tunable at runtime (Settings → Admin panel → Config).
+  const overrides = input.isPrivateNote ? {} : await getRuntimeOverrides();
+  const undoMs = input.isPrivateNote
+    ? 0
+    : (overrides.undoSendSeconds ?? loadConfig().UNDO_SEND_SECONDS) * 1000;
   const delayMs = scheduledAt ? Math.max(scheduledAt.getTime() - Date.now(), 0) : undoMs;
 
   if (!input.isPrivateNote && connection) {

@@ -190,6 +190,9 @@ importers:
       '@comms/core':
         specifier: workspace:*
         version: link:../core
+      '@comms/db':
+        specifier: workspace:*
+        version: link:../db
     devDependencies:
       typescript:
         specifier: ^5.7.3

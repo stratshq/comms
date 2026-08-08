@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { loadConfig } from '@comms/core';
+import { isAiConfigured } from '@comms/ai';
 import {
   getConversation,
   getMessages,
@@ -89,7 +89,7 @@ export default async function ConversationPage({
     conversation.contact?.identities
       ?.map((i) => formatAddress(i.rawValue ?? i.value) ?? i.value)
       .filter((v): v is string => Boolean(v)) ?? [];
-  const aiEnabled = loadConfig().aiEnabled;
+  const aiEnabled = await isAiConfigured();
   const meta = conversation.metadata as {
     ai?: { summary?: string; topic?: string; sentiment?: string; draft?: string };
     nudge?: { excerpt?: string; dueAt?: string; dismissedAt?: string };

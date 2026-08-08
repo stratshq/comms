@@ -1,8 +1,10 @@
 import { getOrgSettings, getSetting } from '@/server/settings';
 import { signaturesEnabled } from '@/server/signature';
+import { getSplitInboxState } from '@/server/actions/views';
 import { GeneralForm } from '@/components/settings/general-form';
 import { SlaForm } from '@/components/settings/sla-form';
 import { SignatureSettings } from '@/components/settings/signature-settings';
+import { SplitInboxSettings } from '@/components/settings/split-inbox-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +15,7 @@ export default async function WorkspaceSettingsPage() {
     (await getSetting<{ firstResponseMinutes?: number; nextResponseMinutes?: number }>('sla')) ??
     {};
   const sigEnabled = await signaturesEnabled();
+  const splitState = await getSplitInboxState();
 
   return (
     <div className="space-y-6">
@@ -29,6 +32,15 @@ export default async function WorkspaceSettingsPage() {
         </CardHeader>
         <CardContent>
           <GeneralForm orgName={org.orgName ?? 'Comms'} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Split inbox</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SplitInboxSettings state={splitState} />
         </CardContent>
       </Card>
 

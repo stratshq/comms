@@ -11,7 +11,7 @@ import {
   loadConfig,
   logger,
 } from '@comms/core';
-import { getDb, eq } from '@comms/db';
+import { getDb, eq, getRuntimeOverrides } from '@comms/db';
 import { messages, conversations, contacts } from '@comms/db';
 import { loadConnection } from '../lib/connection.js';
 import { withChatLock } from '../lib/lock.js';
@@ -93,7 +93,13 @@ export async function processOutbound(job: Job<OutboundJob>, token?: string): Pr
 
   // Apple-ID protection: hard hourly/daily ceilings per connection. Over cap,
   // the job parks itself until the window rolls over — delayed, never dropped.
-  const quota = await takeSendQuota(connectionId, cfg.SEND_HOURLY_CAP, cfg.SEND_DAILY_CAP);
+  // Caps are admin-tunable at runtime; env values are the defaults.
+  const overrides = await getRuntimeOverrides();
+  const quota = await takeSendQuota(
+    connectionId,
+    overrides.sendHourlyCap ?? cfg.SEND_HOURLY_CAP,
+    overrides.sendDailyCap ?? cfg.SEND_DAILY_CAP,
+  );
   if (!quota.allowed) {
     log.warn(
       { messageId: msg.id, scope: quota.scope, retryInMs: quota.retryInMs },
@@ -117,7 +123,7 @@ export async function processOutbound(job: Job<OutboundJob>, token?: string): Pr
 
     try {
       // Pace sends per number to stay under Apple's iMessage throttling.
-      await awaitSendSlot(connectionId, cfg.SEND_MIN_INTERVAL_MS);
+      await awaitSendSlot(connectionId, overrides.sendMinIntervalMs ?? cfg.SEND_MIN_INTERVAL_MS);
 
       const attachment = msg.attachments?.find((a) => a.storageKey);
       let providerGuid: string | undefined;

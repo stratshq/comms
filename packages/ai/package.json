@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
-    "@comms/core": "workspace:*"
+    "@comms/core": "workspace:*",
+    "@comms/db": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

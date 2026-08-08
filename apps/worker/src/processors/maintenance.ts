@@ -24,6 +24,7 @@ import {
   inboxes,
   messages,
   notifications,
+  savedViews,
   users,
 } from '@comms/db';
 import { loadConnection } from '../lib/connection.js';
@@ -34,6 +35,47 @@ const log = logger.child({ module: 'maintenance' });
 
 /** Marks the one-time correspondent backfill as finished. */
 const KIND_BACKFILL_KEY = 'kind_backfill_done';
+
+/** Marks the default split-inbox folders as seeded (deleting one is final). */
+const FOLDERS_SEEDED_KEY = 'default_folders_seeded';
+
+/**
+ * The split inbox every install starts with: machine traffic grouped under
+ * its own headers so the People stream is people. Shared (admin-managed) and
+ * shown as sections in the inbox list; each can be turned off from
+ * Settings → Workspace, which deletes the folder — the seeded flag makes
+ * sure a deliberate off stays off across restarts.
+ */
+const DEFAULT_FOLDERS: { name: string; icon: string; kind: 'otp' | 'automated' | 'unknown' }[] = [
+  { name: 'Verification codes', icon: 'KeyRound', kind: 'otp' },
+  { name: 'Automated', icon: 'Bot', kind: 'automated' },
+  { name: 'Unknown numbers', icon: 'UserRound', kind: 'unknown' },
+];
+
+async function seedDefaultFolders() {
+  const db = getDb();
+  const done = await db.query.appSettings.findFirst({
+    where: eq(appSettings.key, FOLDERS_SEEDED_KEY),
+  });
+  if (done?.value) return;
+
+  for (const f of DEFAULT_FOLDERS) {
+    await db.insert(savedViews).values({
+      name: f.name,
+      icon: f.icon,
+      display: 'section',
+      isShared: true,
+      ownerUserId: null,
+      filters: { kind: f.kind, status: 'active' },
+    });
+  }
+
+  await db
+    .insert(appSettings)
+    .values({ key: FOLDERS_SEEDED_KEY, value: true })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value: true } });
+  log.info('default split-inbox folders seeded');
+}
 
 /**
  * Notify every admin/owner about a channel transition (down or recovered).
@@ -578,5 +620,7 @@ export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void
       return nudgeSweep();
     case 'classifyExisting':
       return classifyExisting();
+    case 'seedDefaultFolders':
+      return seedDefaultFolders();
   }
 }

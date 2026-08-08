@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { type AiJob, publishEvent, logger } from '@comms/core';
 import {
-  isAiEnabled,
+  isAiConfigured,
   triageConversation,
   summarizeConversation,
   suggestReply,
@@ -280,7 +280,7 @@ async function bundleSweep(): Promise<void> {
 }
 
 export async function processAiJob(job: Job<AiJob>): Promise<void> {
-  if (!isAiEnabled()) return;
+  if (!(await isAiConfigured())) return;
   switch (job.data.type) {
     case 'triage':
       return triage(job.data.conversationId);

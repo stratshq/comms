@@ -1,10 +1,10 @@
-import { loadConfig } from '@comms/core';
+import { isAiConfigured } from '@comms/ai';
 import { AskArchive } from '@/components/inbox/ask-archive';
 
 export const dynamic = 'force-dynamic';
 
-export default function AskPage() {
-  const aiEnabled = loadConfig().aiEnabled;
+export default async function AskPage() {
+  const aiEnabled = await isAiConfigured();
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-5 overflow-y-auto p-6">

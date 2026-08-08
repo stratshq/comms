@@ -240,34 +240,43 @@ export function Sidebar({
           </>
         )}
 
-        {views.length > 0 && (
-          <>
-            <SectionLabel
-              action={
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new Event('comms:new-folder'))}
-                  title="New folder"
-                  aria-label="New folder"
-                  className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              }
+        <SectionLabel
+          action={
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('comms:new-folder'))}
+              title="New folder"
+              aria-label="New folder"
+              className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
             >
-              Folders
-            </SectionLabel>
-            {views.map((v) => (
-              <NavRow
-                key={v.id}
-                href={v.href}
-                active={pathname === '/inbox' && searchParams.toString() === v.href.split('?')[1]}
-                icon={Filter}
-                label={v.name}
-                count={v.count}
-              />
-            ))}
-          </>
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          }
+        >
+          Folders
+        </SectionLabel>
+        {views.length === 0 ? (
+          // An empty section that still shows how to fill it — the folders
+          // feature being invisible until you had one was how nobody found it.
+          <Link
+            href="/inbox"
+            onClick={() => window.dispatchEvent(new Event('comms:new-folder'))}
+            className="type-item flex items-center gap-2.5 rounded-lg border border-dashed border-border-strong px-2.5 py-2 text-muted-foreground transition-colors hover:border-brand/40 hover:bg-brand-muted/50 hover:text-brand"
+          >
+            <Plus className="h-[15px] w-[15px]" />
+            New folder
+          </Link>
+        ) : (
+          views.map((v) => (
+            <NavRow
+              key={v.id}
+              href={v.href}
+              active={pathname === '/inbox' && searchParams.toString() === v.href.split('?')[1]}
+              icon={Filter}
+              label={v.name}
+              count={v.count}
+            />
+          ))
         )}
 
         <SectionLabel

@@ -1,4 +1,4 @@
-import { loadConfig } from '@comms/core';
+import { isAiConfigured } from '@comms/ai';
 import {
   getConversation,
   getMessages,
@@ -91,7 +91,7 @@ export default async function FocusPage({
           shortcut: m.shortcut,
           hasActions: Object.keys(m.actions ?? {}).length > 0,
         })),
-        aiEnabled: loadConfig().aiEnabled,
+        aiEnabled: await isAiConfigured(),
         aiDraft: ai?.draft ?? null,
         initialDraft: draft,
         canReact: Boolean(connection?.capabilities?.privateApi),

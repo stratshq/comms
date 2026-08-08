@@ -19,7 +19,7 @@ import {
   publishEvent,
   logger,
 } from '@comms/core';
-import { isAiEnabled } from '@comms/ai';
+import { isAiConfigured } from '@comms/ai';
 import {
   linkParticipants,
   resolveContact,
@@ -406,7 +406,7 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     await onInboundSlaCsat(conversation.id, conversation, bb.text).catch(() => {});
     await runAutomations('message_received', conversation.id, { bodyText: bb.text }).catch(() => {});
     // Have a draft + summary waiting before an agent ever opens this.
-    if (isAiEnabled()) {
+    if (await isAiConfigured()) {
       await enqueueAi({ type: 'precompute', conversationId: conversation.id }).catch(() => {});
     }
   }
@@ -418,7 +418,7 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
       () => {},
     );
     await maybeAutoAssign(conversation.id, conn.inboxId).catch(() => {});
-    if (isAiEnabled()) {
+    if (await isAiConfigured()) {
       await enqueueAi({ type: 'triage', conversationId: conversation.id }).catch(() => {});
     }
   }

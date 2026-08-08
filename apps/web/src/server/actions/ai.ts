@@ -5,7 +5,7 @@ import { contacts, conversations, messages } from '@comms/db';
 import {
   answerFromArchive,
   completeMessage,
-  isAiEnabled,
+  isAiConfigured,
   summarizeConversation,
   suggestReply,
   type TranscriptMessage,
@@ -45,7 +45,7 @@ async function loadTranscript(
 
 export async function summarizeConversationAction(conversationId: string): Promise<AiResult> {
   await requireUser();
-  if (!isAiEnabled()) return { ok: false, error: 'AI is not configured.' };
+  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
   const data = await loadTranscript(conversationId);
   if (!data) return { ok: false, error: 'Conversation not found.' };
   if (data.transcript.length === 0) return { ok: false, error: 'Nothing to summarize yet.' };
@@ -62,7 +62,7 @@ export async function summarizeConversationAction(conversationId: string): Promi
 
 export async function suggestReplyAction(conversationId: string): Promise<AiResult> {
   await requireUser();
-  if (!isAiEnabled()) return { ok: false, error: 'AI is not configured.' };
+  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
   const data = await loadTranscript(conversationId);
   if (!data) return { ok: false, error: 'Conversation not found.' };
 
@@ -127,7 +127,7 @@ export type AskResult =
  */
 export async function askArchiveAction(question: string): Promise<AskResult> {
   await requireUser();
-  if (!isAiEnabled()) return { ok: false, error: 'AI is not configured.' };
+  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
 
   const q = question.trim();
   if (q.length < 3) return { ok: false, error: 'Ask a longer question.' };
@@ -246,7 +246,7 @@ export async function completeMessageAction(input: {
   prefix: string;
 }): Promise<{ completion: string }> {
   await requireUser();
-  if (!isAiEnabled()) return { completion: '' };
+  if (!(await isAiConfigured())) return { completion: '' };
 
   const prefix = input.prefix;
   // Too little to go on, or already a finished thought.

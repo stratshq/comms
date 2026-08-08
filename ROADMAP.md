@@ -28,7 +28,10 @@ Turning breadth into something trustworthy — this cuts across all waves.
 The two headline bets: make Comms AI-native, and make the iMessage bridge
 trustworthy. Both are mostly backend and shippable without new infra.
 
-- 🚧 **AI layer (`packages/ai`)** — Claude-powered, provider-config via `ANTHROPIC_API_KEY`
+- 🚧 **AI layer (`packages/ai`)** — multi-provider: connect Anthropic, OpenAI,
+  Google, xAI or any OpenAI-compatible endpoint from the admin panel
+  (encrypted keys, test button); `ANTHROPIC_API_KEY` remains the zero-config
+  fallback
   - 🚧 Conversation summarization ("catch me up")
   - 🚧 Suggested reply / draft in brand voice (RAG over past resolved replies)
   - 🚧 Auto-triage on new conversations: priority, topic, sentiment, suggested tags
@@ -75,7 +78,12 @@ What makes Comms enterprise rather than a personal bridge.
   new folder already contains its history and threads leave when they stop
   matching
 - ✅ Split inbox by correspondent — People / Unknown / Automated / Verification
-  codes, classified from traffic at ingest, with a copy-the-code chip on OTP rows
+  codes, classified from traffic at ingest, with a copy-the-code chip on OTP rows.
+  Shipped ON by default (seeded shared folders, toggleable in Settings → Workspace)
+- ✅ **Admin panel** (Settings → Other) — version + update check, administrators
+  and recent users, AI provider management, runtime-tunable config (undo window,
+  send caps — no redeploy), and a Health tab: Postgres/Redis latency, queue
+  depths, worker heartbeat, bridge status
 - ✅ Automations can route to a team, mute a thread, and condition on the
   correspondent kind
 - ⬜ Merge/split/link conversations; cross-handle entity resolution

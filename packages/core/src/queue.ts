@@ -52,7 +52,9 @@ export type MaintenanceJob =
   /** Scan recent outbound replies for broken promises ("I'll send it Friday"). */
   | { type: 'nudges' }
   /** One-time: classify conversations that predate the correspondent detector. */
-  | { type: 'classifyExisting' };
+  | { type: 'classifyExisting' }
+  /** One-time: create the default split-inbox folders. */
+  | { type: 'seedDefaultFolders' };
 
 /**
  * Background AI work. `precompute` runs on every inbound message so the draft

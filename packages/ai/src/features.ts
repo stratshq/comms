@@ -1,33 +1,18 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { getAnthropic, getModel } from './client.js';
+import { aiStructured, aiText } from './client.js';
 import { formatTranscript, type TranscriptMessage } from './transcript.js';
-
-function extractText(content: Array<{ type: string; text?: string }>): string {
-  return content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text ?? '')
-    .join('\n')
-    .trim();
-}
 
 /** A tight catch-up summary for an agent opening a conversation. */
 export async function summarizeConversation(input: {
   contactName?: string | null;
   messages: TranscriptMessage[];
 }): Promise<string> {
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 600,
+  return aiText({
+    maxTokens: 600,
     system:
       "You are an assistant for a customer-support team. Summarize the conversation so an agent can catch up in seconds. Lead with the customer's core ask and the current status, then the key details. 2–4 sentences, plain text, no preamble.",
-    messages: [
-      {
-        role: 'user',
-        content: formatTranscript(input.messages, input.contactName) || 'No messages yet.',
-      },
-    ],
+    user: formatTranscript(input.messages, input.contactName) || 'No messages yet.',
   });
-  return extractText(res.content);
 }
 
 /** Draft the next agent reply, optionally matched to the team's brand voice. */
@@ -46,14 +31,12 @@ export async function suggestReply(input: {
   }
   if (input.guidance) parts.push(`\n\nGuidance for this reply: ${input.guidance}`);
 
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 800,
+  return aiText({
+    maxTokens: 800,
     system:
       "You are a customer-support agent drafting the next reply to send to the customer. Output only the message body — no salutation placeholders, no subject line, no quotation marks, no commentary. Be warm, concise, and genuinely helpful. Match the team's tone from any examples provided. Never invent facts, order numbers, prices, or commitments you cannot verify; if information is missing, ask the customer for it.",
-    messages: [{ role: 'user', content: parts.join('') }],
+    user: parts.join(''),
   });
-  return extractText(res.content);
 }
 
 export interface ConversationTriage {
@@ -94,24 +77,14 @@ export async function triageConversation(input: {
   contactName?: string | null;
   messages: TranscriptMessage[];
 }): Promise<ConversationTriage> {
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 600,
+  const data = (await aiStructured({
+    maxTokens: 600,
     system: 'You triage inbound customer-support conversations. Classify accurately and concisely.',
-    messages: [
-      {
-        role: 'user',
-        content: `Triage this conversation:\n\n${
-          formatTranscript(input.messages, input.contactName) || 'No messages yet.'
-        }`,
-      },
-    ],
-    tools: [TRIAGE_TOOL],
-    tool_choice: { type: 'tool' as const, name: 'record_triage' },
-  });
-
-  const block = res.content.find((b) => b.type === 'tool_use');
-  const data = (block && 'input' in block ? block.input : {}) as Partial<ConversationTriage>;
+    user: `Triage this conversation:\n\n${
+      formatTranscript(input.messages, input.contactName) || 'No messages yet.'
+    }`,
+    tool: TRIAGE_TOOL,
+  })) as Partial<ConversationTriage>;
   return {
     priority: data.priority ?? 'normal',
     sentiment: data.sentiment ?? 'neutral',
@@ -192,9 +165,8 @@ export async function assignBundles(input: {
     )
     .join('\n');
 
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 2000,
+  const data = (await aiStructured({
+    maxTokens: 2000,
     system: [
       'You organize a shared text-message inbox by grouping similar conversations into bundles.',
       'A bundle is a short Title Case name like "Order Updates", "Scheduling", "Billing Questions".',
@@ -206,20 +178,11 @@ export async function assignBundles(input: {
     ]
       .filter(Boolean)
       .join(' '),
-    messages: [
-      {
-        role: 'user',
-        content: `Existing bundles: ${
-          input.existingBundles.length ? input.existingBundles.join(', ') : '(none)'
-        }\n\nConversations:\n${lines}`,
-      },
-    ],
-    tools: [BUNDLE_TOOL],
-    tool_choice: { type: 'tool' as const, name: 'record_bundles' },
-  });
-
-  const block = res.content.find((b) => b.type === 'tool_use');
-  const data = (block && 'input' in block ? block.input : {}) as {
+    user: `Existing bundles: ${
+      input.existingBundles.length ? input.existingBundles.join(', ') : '(none)'
+    }\n\nConversations:\n${lines}`,
+    tool: BUNDLE_TOOL,
+  })) as {
     assignments?: Array<{ conversationId?: unknown; bundle?: unknown }>;
   };
   if (!Array.isArray(data.assignments)) return [];
@@ -287,9 +250,8 @@ export async function answerFromArchive(input: {
     )
     .join('\n\n');
 
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 700,
+  const answer = await aiText({
+    maxTokens: 700,
     system: [
       'You answer questions about the user\'s own text-message history.',
       'You are given numbered excerpts retrieved from their messages. Answer ONLY from those excerpts.',
@@ -297,15 +259,8 @@ export async function answerFromArchive(input: {
       'Cite the excerpts you used inline as [1], [2]. Quote short fragments where the exact wording matters.',
       'Be direct and brief. No preamble, no restating the question.',
     ].join(' '),
-    messages: [
-      {
-        role: 'user',
-        content: `Question: ${input.question}\n\nExcerpts from my messages:\n\n${context}`,
-      },
-    ],
+    user: `Question: ${input.question}\n\nExcerpts from my messages:\n\n${context}`,
   });
-
-  const answer = extractText(res.content);
   // Keep the numbers the model used, deduped, in the order it used them.
   const cited: number[] = [];
   for (const m of answer.matchAll(/\[(\d+)\]/g)) {
@@ -327,9 +282,8 @@ export async function completeMessage(input: {
   messages: TranscriptMessage[];
   prefix: string;
 }): Promise<string> {
-  const res = await getAnthropic().messages.create({
-    model: getModel(),
-    max_tokens: 60,
+  const out = await aiText({
+    maxTokens: 60,
     system: [
       'You complete the message the user is currently typing in a text-message thread.',
       'Output ONLY the continuation — the characters that follow their text. Do not repeat what they already wrote.',
@@ -338,15 +292,8 @@ export async function completeMessage(input: {
       'Never invent facts, prices, dates, times or commitments. If the natural continuation would require a fact you do not have, output nothing.',
       'If their text already reads as complete, output nothing.',
     ].join(' '),
-    messages: [
-      {
-        role: 'user',
-        content: `${formatTranscript(input.messages, input.contactName) || 'No messages yet.'}\n\nI am typing this reply and stopped mid-thought:\n"${input.prefix}"\n\nContinuation:`,
-      },
-    ],
+    user: `${formatTranscript(input.messages, input.contactName) || 'No messages yet.'}\n\nI am typing this reply and stopped mid-thought:\n"${input.prefix}"\n\nContinuation:`,
   });
-
-  const out = extractText(res.content);
   // The model sometimes echoes the prefix despite the instruction.
   const cleaned = out.startsWith(input.prefix) ? out.slice(input.prefix.length) : out;
   return cleaned.replace(/^["']|["']$/g, '').trimEnd();

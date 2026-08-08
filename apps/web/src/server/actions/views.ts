@@ -80,6 +80,64 @@ export async function updateSavedView(input: {
   return { ok: true };
 }
 
+/** The split-inbox axes an admin can switch on and off from Workspace settings. */
+const SPLIT_KINDS = ['otp', 'automated', 'unknown'] as const;
+type SplitKind = (typeof SPLIT_KINDS)[number];
+
+const SPLIT_DEFAULTS: Record<SplitKind, { name: string; icon: string }> = {
+  otp: { name: 'Verification codes', icon: 'KeyRound' },
+  automated: { name: 'Automated', icon: 'Bot' },
+  unknown: { name: 'Unknown numbers', icon: 'UserRound' },
+};
+
+/** Which split-inbox folders currently exist (shared, filtered on that kind). */
+export async function getSplitInboxState(): Promise<Record<SplitKind, boolean>> {
+  await requireUser();
+  const shared = await db.query.savedViews.findMany({ where: eq(savedViews.isShared, true) });
+  const state = { otp: false, automated: false, unknown: false };
+  for (const v of shared) {
+    const kind = v.filters?.kind as SplitKind | undefined;
+    if (kind && kind in state) state[kind] = true;
+  }
+  return state;
+}
+
+/**
+ * Turn a split-inbox section on or off. On creates the shared folder, off
+ * deletes it — the switch and the folder are the same fact, so the toggle
+ * can never disagree with what the inbox actually shows.
+ */
+export async function setSplitInboxFolder(kind: string, enabled: boolean): Promise<ViewResult> {
+  await requireAdmin();
+  if (!(SPLIT_KINDS as readonly string[]).includes(kind)) {
+    return { ok: false, error: 'Unknown split-inbox section.' };
+  }
+  const k = kind as SplitKind;
+
+  const shared = await db.query.savedViews.findMany({ where: eq(savedViews.isShared, true) });
+  const existing = shared.filter((v) => v.filters?.kind === k);
+
+  if (enabled && existing.length === 0) {
+    await db.insert(savedViews).values({
+      name: SPLIT_DEFAULTS[k].name,
+      icon: SPLIT_DEFAULTS[k].icon,
+      display: 'section',
+      isShared: true,
+      ownerUserId: null,
+      filters: { kind: k, status: 'active' },
+    });
+  } else if (!enabled) {
+    for (const v of existing) {
+      await db.delete(savedViews).where(eq(savedViews.id, v.id));
+    }
+  }
+
+  revalidatePath('/inbox');
+  revalidatePath('/settings/workspace');
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
 export async function deleteSavedView(id: string): Promise<ViewResult> {
   const user = await requireUser();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });

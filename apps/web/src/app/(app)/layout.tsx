@@ -85,15 +85,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               counts={{ ...counts, pending }}
               inboxes={inboxList}
               teams={teamRows}
-              views={viewRows
-                // Section folders live inside the list, not in the sidebar.
-                .filter((v) => v.display === 'sidebar')
-                .map((v) => ({
-                  id: v.id,
-                  name: v.name,
-                  href: viewHref(v.filters as Record<string, unknown>),
-                  count: v.count,
-                }))}
+              // ALL folders, sections included: a section groups the inbox
+              // list AND has a sidebar row — the row is how you jump straight
+              // to "just the verification codes" with a live count.
+              views={viewRows.map((v) => ({
+                id: v.id,
+                name: v.name,
+                href: viewHref(v.filters as Record<string, unknown>),
+                count: v.count,
+              }))}
             />
           </SidebarShell>
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>

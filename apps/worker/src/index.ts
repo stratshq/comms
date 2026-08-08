@@ -10,6 +10,7 @@ import {
 } from '@comms/core';
 import { getDb, closeDb, ensureAppSecret } from '@comms/db';
 import { channelConnections } from '@comms/db';
+import { isAiConfigured } from '@comms/ai';
 import { processInbound } from './processors/inbound.js';
 import { processOutbound } from './processors/outbound.js';
 import { processAttachment } from './processors/attachments.js';
@@ -78,6 +79,10 @@ async function main() {
   // A short Redis lock ensures only one replica sweeps each tick.
   const sweep = async () => {
     const redis = getRedis();
+    // Liveness beacon for the admin panel's Health tab — set by every replica
+    // on every tick, before the single-sweeper lock, so "a worker is alive"
+    // is answerable even when this replica isn't the one sweeping.
+    await redis.set('comms:worker:alive', String(Date.now()), 'EX', 180).catch(() => {});
     const got = await redis.set('comms:sweep:lock', '1', 'PX', 55_000, 'NX');
     if (!got) return;
     try {
@@ -87,8 +92,9 @@ async function main() {
       if (await due('nudges', 60 * 60)) {
         await enqueueMaintenance({ type: 'nudges' });
       }
-      // Bundling costs a model call — hourly, and only when AI is configured.
-      if (loadConfig().aiEnabled && (await due('bundle', 60 * 60))) {
+      // Bundling costs a model call — hourly, and only when AI is configured
+      // (env key or a provider connected in the admin panel).
+      if ((await isAiConfigured()) && (await due('bundle', 60 * 60))) {
         await enqueueAi({ type: 'bundle' });
       }
       const conns = await getDb()
@@ -117,8 +123,14 @@ async function main() {
   // too many, and both repairs are no-ops once the data is clean.
   // `classifyExisting` is the same idea for the split inbox: without it an
   // established install shows every old thread as a person until new traffic
-  // arrives. It self-disables once complete.
-  for (const type of ['repairNames', 'repairContacts', 'classifyExisting'] as const) {
+  // arrives. `seedDefaultFolders` gives every install the split-inbox folders
+  // out of the box. Both self-disable once complete.
+  for (const type of [
+    'repairNames',
+    'repairContacts',
+    'classifyExisting',
+    'seedDefaultFolders',
+  ] as const) {
     await enqueueMaintenance({ type }).catch((err) =>
       log.warn({ err: (err as Error).message, type }, 'could not enqueue repair'),
     );
