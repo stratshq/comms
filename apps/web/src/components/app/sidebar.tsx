@@ -16,7 +16,6 @@ import {
   CalendarClock,
   Sparkles,
   Layers,
-  UsersRound,
 } from 'lucide-react';
 import { Logo } from '@/components/brand';
 import { UserMenu } from '@/components/app/user-menu';
@@ -110,7 +109,6 @@ export function Sidebar({
   counts,
   inboxes,
   views = [],
-  teams = [],
 }: {
   user: { name?: string | null; email?: string | null; image?: string | null };
   counts: {
@@ -124,13 +122,10 @@ export function Sidebar({
   };
   inboxes: { id: string; name: string; color: string; connected: boolean }[];
   views?: { id: string; name: string; href: string; count: number }[];
-  /** Teams the signed-in user belongs to, with their open work count. */
-  teams?: { id: string; name: string; color: string; open: number }[];
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeInbox = searchParams.get('inbox');
-  const activeTeam = searchParams.get('team');
   const onInbox = pathname === '/inbox' || pathname.startsWith('/inbox/');
 
   // Snoozed and Closed are folders, not filters: a conversation you snoozed is
@@ -200,45 +195,6 @@ export function Sidebar({
             />
           );
         })}
-
-        {/* Teams you're on. Only your own — a list of every team in the
-            workspace is an org chart, not a work queue. */}
-        {teams.length > 0 && (
-          <>
-            <SectionLabel
-              action={
-                <Link
-                  href="/settings/teams"
-                  title="Manage teams"
-                  className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
-                >
-                  <Settings className="h-3 w-3" />
-                </Link>
-              }
-            >
-              Teams
-            </SectionLabel>
-            {teams.length > 1 && (
-              <NavRow
-                href="/inbox?team=mine"
-                active={Boolean(onInbox && activeTeam === 'mine')}
-                icon={UsersRound}
-                label="All my teams"
-                count={teams.reduce((n, t) => n + t.open, 0)}
-              />
-            )}
-            {teams.map((t) => (
-              <NavRow
-                key={t.id}
-                href={`/inbox?team=${t.id}`}
-                active={Boolean(onInbox && activeTeam === t.id)}
-                label={t.name}
-                count={t.open}
-                dot={{ color: t.color, connected: true }}
-              />
-            ))}
-          </>
-        )}
 
         <SectionLabel
           action={

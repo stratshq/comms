@@ -1,9 +1,11 @@
+import { requirePermissionPage } from '@/lib/session';
 import { listMacros } from '@/server/queries';
 import { MacroManager } from '@/components/settings/macro-manager';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MacrosSettingsPage() {
+  await requirePermissionPage('workspace.manage');
   const macros = await listMacros();
   return (
     <div className="space-y-4">

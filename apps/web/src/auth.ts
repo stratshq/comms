@@ -39,7 +39,6 @@ function buildProviders(): NextAuthConfig['providers'] {
           email: user.email,
           name: user.name,
           image: user.image,
-          role: user.role,
         };
       },
     }),
@@ -98,19 +97,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: { signIn: '/login' },
   providers: buildProviders(),
   callbacks: {
+    // The token carries identity only. Authorization (role, permissions) is
+    // read from the database per request — see `@/lib/session` — so a role
+    // change applies immediately instead of at the next sign-in.
     async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as { role?: 'owner' | 'admin' | 'agent' }).role ?? 'agent';
-      }
+      if (user) token.id = user.id;
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         const id = token.id as string | undefined;
-        const role = token.role as 'owner' | 'admin' | 'agent' | undefined;
         if (id) session.user.id = id;
-        session.user.role = role ?? 'agent';
       }
       return session;
     },

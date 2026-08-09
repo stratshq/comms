@@ -85,24 +85,12 @@ async function ensureConversation(
   });
   if (found) return { conversation: found, created: false };
 
-  // Client → team routing: the team that owns this contact owns every thread
-  // they ever start. Classifying the client once beats filing each thread.
-  let assignedTeamId: string | null = null;
-  if (contactId) {
-    const contact = await db.query.contacts.findFirst({
-      where: eq(contacts.id, contactId),
-      columns: { ownerTeamId: true },
-    });
-    assignedTeamId = contact?.ownerTeamId ?? null;
-  }
-
   const inserted = await db
     .insert(conversations)
     .values({
       inboxId,
       providerChatGuid: chatGuid,
       contactId,
-      assignedTeamId,
       isGroup: parsed.isGroup,
       // A brand-new one-to-one thread is by definition from someone we don't
       // know yet; the classifier refines this as soon as messages land.

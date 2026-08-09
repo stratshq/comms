@@ -19,7 +19,7 @@ import {
   logger,
 } from '@comms/core';
 import { db } from '@/server/db';
-import { requireAdmin } from '@/lib/session';
+import { requirePermission } from '@/lib/session';
 
 const log = logger.child({ action: 'connections' });
 
@@ -43,7 +43,7 @@ export async function connectBlueBubbles(input: {
   serverUrl: string;
   password: string;
 }): Promise<ConnectResult> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const cfg = loadConfig();
 
   const serverUrl = input.serverUrl.trim().replace(/\/+$/, '');
@@ -170,7 +170,7 @@ export async function updateConnectionServerUrl(input: {
   /** Optional: also rotate the password. Blank/omitted keeps the stored one. */
   password?: string;
 }): Promise<{ ok: boolean; privateApi?: boolean; webhookRegistered?: boolean; error?: string }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const cfg = loadConfig();
 
   const conn = await db.query.channelConnections.findFirst({
@@ -260,7 +260,7 @@ export async function verifyBlueBubbles(input: {
   serverUrl: string;
   password: string;
 }): Promise<VerifyResult> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
 
   const serverUrl = input.serverUrl.trim().replace(/\/+$/, '');
   const password = input.password.trim();
@@ -296,7 +296,7 @@ export async function verifyBlueBubbles(input: {
 export async function testConnection(
   connectionId: string,
 ): Promise<{ ok: boolean; privateApi?: boolean; error?: string }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const cfg = loadConfig();
   const conn = await db.query.channelConnections.findFirst({
     where: eq(channelConnections.id, connectionId),
@@ -342,7 +342,7 @@ export async function testConnection(
 export async function syncContactsNow(
   connectionId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   try {
     await enqueueMaintenance({ type: 'contactSync', connectionId });
     return { ok: true };
@@ -355,7 +355,7 @@ export async function syncContactsNow(
 export async function reRegisterWebhook(
   connectionId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const cfg = loadConfig();
   const conn = await db.query.channelConnections.findFirst({
     where: eq(channelConnections.id, connectionId),
@@ -395,7 +395,7 @@ export async function updateInboxSettings(
     signature?: string;
   },
 ): Promise<{ ok: boolean }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const inbox = await db.query.inboxes.findFirst({ where: eq(inboxes.id, inboxId) });
   if (!inbox) return { ok: false };
   await db
@@ -407,7 +407,7 @@ export async function updateInboxSettings(
 }
 
 export async function disconnect(connectionId: string): Promise<{ ok: boolean }> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const cfg = loadConfig();
   const conn = await db.query.channelConnections.findFirst({
     where: eq(channelConnections.id, connectionId),

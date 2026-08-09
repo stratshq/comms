@@ -1,5 +1,5 @@
 import 'server-only';
-import { asc, eq, inArray, sql } from '@comms/db';
+import { asc, eq, sql, roleGrants } from '@comms/db';
 import { aiProviders, channelConnections, inboxes, users } from '@comms/db';
 import {
   QUEUE_NAMES,
@@ -193,20 +193,35 @@ export async function getSystemHealth(): Promise<SystemHealth> {
 // ---- People (General tab) -----------------------------------------------------
 
 export async function getAdminOverview() {
-  const [admins, recent] = await Promise.all([
+  const [allWithRole, recent] = await Promise.all([
     db.query.users.findMany({
-      where: inArray(users.role, ['owner', 'admin']),
-      columns: { id: true, name: true, email: true, role: true, image: true },
+      columns: { id: true, name: true, email: true, image: true },
+      with: { role: { columns: { name: true, permissions: true } } },
       orderBy: [asc(users.name)],
     }),
     db.query.users.findMany({
-      columns: { id: true, name: true, email: true, role: true, lastSeenAt: true, status: true },
+      columns: { id: true, name: true, email: true, lastSeenAt: true, status: true },
+      with: { role: { columns: { name: true } } },
       // Hand-rolled: desc() would render "nulls last desc", which is invalid.
       orderBy: [sql`${users.lastSeenAt} desc nulls last`, asc(users.name)],
       limit: 8,
     }),
   ]);
-  return { admins, recent };
+  // "Administrators" = anyone whose role grants system administration.
+  const admins = allWithRole
+    .filter((u) => roleGrants(u.role?.permissions, 'system.admin'))
+    .map((u) => ({ id: u.id, name: u.name, email: u.email, image: u.image, role: u.role?.name ?? '—' }));
+  return {
+    admins,
+    recent: recent.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role?.name ?? '—',
+      lastSeenAt: u.lastSeenAt,
+      status: u.status,
+    })),
+  };
 }
 
 // ---- AI providers ---------------------------------------------------------------

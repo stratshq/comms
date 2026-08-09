@@ -1,41 +1,40 @@
+import { requirePermissionPage } from '@/lib/session';
 import { listAgents } from '@/server/queries';
+import { listAssignableRoles } from '@/server/actions/roles';
 import { AddTeammate } from '@/components/settings/add-teammate';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { initials } from '@/lib/utils';
+import { PeopleManager } from '@/components/settings/people-manager';
 
 export const dynamic = 'force-dynamic';
 
 export default async function TeamSettingsPage() {
-  const agents = await listAgents();
+  const me = await requirePermissionPage('users.manage');
+  const [agents, assignableRoles] = await Promise.all([listAgents(), listAssignableRoles()]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Team</h2>
-          <p className="text-sm text-muted-foreground">People with access to this workspace.</p>
+          <h2 className="text-lg font-semibold">People</h2>
+          <p className="text-sm text-muted-foreground">
+            Who has access to this workspace, and which role — and therefore which permissions —
+            each person has.
+          </p>
         </div>
-        <AddTeammate />
+        <AddTeammate roles={assignableRoles} />
       </div>
 
-      <div className="divide-y rounded-lg border">
-        {agents.map((a) => (
-          <div key={a.id} className="flex items-center gap-3 p-3">
-            <Avatar className="h-8 w-8">
-              {a.image && <AvatarImage src={a.image} alt={a.name ?? ''} />}
-              <AvatarFallback className="text-xs">{initials(a.name ?? a.email)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{a.name ?? a.email}</p>
-              <p className="truncate text-xs text-muted-foreground">{a.email}</p>
-            </div>
-            <Badge variant="secondary" className="capitalize">
-              {a.role}
-            </Badge>
-          </div>
-        ))}
-      </div>
+      <PeopleManager
+        people={agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          email: a.email,
+          image: a.image,
+          roleId: a.roleId,
+          roleName: a.role?.name ?? 'Agent',
+        }))}
+        roles={assignableRoles}
+        currentUserId={me.id}
+      />
     </div>
   );
 }

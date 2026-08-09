@@ -1,13 +1,11 @@
-import { isAdminRole, requireDbUser } from '@/lib/session';
+import { can, requireDbUser } from '@/lib/session';
 import {
   inboxCounts,
   listInboxes,
   listUnhealthyConnections,
   listSavedViews,
-  listMyTeamsWithCounts,
   listTags,
 } from '@/server/queries';
-import { myTeamIds } from '@/server/actions/teams';
 import { Sidebar } from '@/components/app/sidebar';
 import { RealtimeProvider } from '@/components/app/realtime-provider';
 import { ChannelHealthBanner } from '@/components/app/channel-health-banner';
@@ -25,14 +23,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Read the row rather than the JWT: the token snapshots name/image/role at
   // sign-in, so a profile edit would otherwise not show up until the next login.
   const user = await requireDbUser();
-  // Folder counts can filter on "my teams", so memberships are resolved first.
-  const myTeams = await myTeamIds();
-  const [counts, inboxRows, unhealthy, viewRows, teamRows, tagRows, pending] = await Promise.all([
+  const [counts, inboxRows, unhealthy, viewRows, tagRows, pending] = await Promise.all([
     inboxCounts(user.id),
     listInboxes(),
     listUnhealthyConnections(),
-    listSavedViews(user.id, myTeams),
-    listMyTeamsWithCounts(user.id),
+    listSavedViews(user.id),
     listTags(),
     pendingCount(),
   ]);
@@ -46,7 +41,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     const p = new URLSearchParams();
     if (f.status && f.status !== 'active') p.set('status', String(f.status));
     if (f.assignee) p.set('assignee', String(f.assignee));
-    if (f.teamId) p.set('team', String(f.teamId));
     if (f.kind) p.set('kind', String(f.kind));
     if (f.has) p.set('has', String(f.has));
     if (Array.isArray(f.bodyContains) && f.bodyContains.length)
@@ -84,7 +78,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               user={{ name: user.name, email: user.email, image: user.image }}
               counts={{ ...counts, pending }}
               inboxes={inboxList}
-              teams={teamRows}
               // ALL folders, sections included: a section groups the inbox
               // list AND has a sidebar row — the row is how you jump straight
               // to "just the verification codes" with a live count.
@@ -101,7 +94,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <CommandPalette
         tags={tagRows.map((t) => ({ id: t.id, name: t.name }))}
-        isAdmin={isAdminRole(user.role)}
+        isAdmin={can(user, 'automations.manage')}
       />
       <NewConversation
         inboxes={inboxRows

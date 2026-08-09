@@ -1,6 +1,6 @@
 export * from './enums.js';
+export * from './roles.js';
 export * from './auth.js';
-export * from './teams.js';
 export * from './inboxes.js';
 export * from './contacts.js';
 export * from './conversations.js';

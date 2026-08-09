@@ -56,11 +56,11 @@ What makes Comms enterprise rather than a personal bridge.
 
 - ✅ Real-time presence ("Sarah is viewing / typing…") + collision warnings
 - ✅ @mentions in internal notes with notifications (+ notification bell)
-- ✅ Assignment rules engine (round-robin + least-busy auto-assignment), scoped
-  to the routed team when a conversation has one
-- ✅ **Teams** — clients routed to a group, not just a person. Assign a contact
-  to a team once and every thread they start inherits it; per-team sidebar
-  rows, filters and round-robin
+- ✅ Assignment rules engine (round-robin + least-busy auto-assignment)
+- ✅ **Roles & permissions** — replaced Teams. Customizable roles with
+  per-permission grants (users, roles, workspace, inboxes, automations,
+  shared folders, system admin); built-in Owner/Admin/Agent, custom roles,
+  owner-safety invariants. Routing-by-team was removed in its favour
 - ✅ Shared drafts — write a reply, share it for review, a teammate approves &
   sends it (with "drafted by" attribution)
 - ⬜ Skills-based / business-hours routing; escalation / handoff with context
@@ -114,7 +114,8 @@ What makes Comms enterprise rather than a personal bridge.
 
 ## Wave 6 — Trust, security, compliance (enterprise)
 
-- ⬜ SSO/SAML/SCIM, granular RBAC, approval workflows
+- ✅ Granular RBAC (customizable roles + permission catalog)
+- ⬜ SSO/SAML/SCIM, approval workflows
 - ⬜ PII redaction, data-retention policies, GDPR delete
 - ⬜ On-prem / air-gapped story; per-agent permissions
 

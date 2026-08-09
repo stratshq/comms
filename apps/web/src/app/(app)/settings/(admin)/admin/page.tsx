@@ -1,3 +1,4 @@
+import { requirePermissionPage } from '@/lib/session';
 import { loadConfig } from '@comms/core';
 import { getRuntimeOverrides } from '@comms/db';
 import { SUGGESTED_MODELS } from '@comms/ai';
@@ -12,6 +13,7 @@ import { AdminPanel } from '@/components/settings/admin-panel';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPanelPage() {
+  await requirePermissionPage('system.admin');
   const cfg = loadConfig();
   const [version, health, overview, ai, overrides] = await Promise.all([
     getVersionInfo(),

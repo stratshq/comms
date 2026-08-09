@@ -1,6 +1,5 @@
 import { pgEnum } from 'drizzle-orm/pg-core';
 
-export const userRole = pgEnum('user_role', ['owner', 'admin', 'agent']);
 export const userStatus = pgEnum('user_status', ['active', 'invited', 'disabled']);
 
 /** The transport family of a conversation. Extensible: whatsapp, sms, etc. later. */

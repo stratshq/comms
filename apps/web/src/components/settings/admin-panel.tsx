@@ -46,7 +46,7 @@ import { cn, initials } from '@/lib/utils';
 /**
  * The instance's own control panel: what version is running, who runs it,
  * which model answers, which knobs are turned, and whether the pieces are
- * alive. Workspace content (tags, macros, teams) stays in its own pages —
+ * alive. Workspace content (tags, macros, roles) stays in its own pages —
  * this is the machine room.
  */
 

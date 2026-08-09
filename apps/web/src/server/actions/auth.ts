@@ -1,8 +1,8 @@
 'use server';
 
 import bcrypt from 'bcryptjs';
-import { eq, count } from '@comms/db';
-import { users } from '@comms/db';
+import { count } from '@comms/db';
+import { users, OWNER_ROLE_ID } from '@comms/db';
 import { db } from '@/server/db';
 import { setSetting } from '@/server/settings';
 
@@ -36,7 +36,7 @@ export async function createFirstAdmin(input: CreateAdminInput): Promise<ActionR
     name: input.name.trim() || 'Admin',
     email,
     hashedPassword,
-    role: 'owner',
+    roleId: OWNER_ROLE_ID,
     status: 'active',
     emailVerified: new Date(),
   });

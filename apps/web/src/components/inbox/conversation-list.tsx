@@ -19,7 +19,6 @@ import {
   Folder as FolderIcon,
   KeyRound,
   Copy,
-  UsersRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -58,7 +57,6 @@ const PRIORITY_SPINE: Record<string, string> = {
  * claims the entire inbox and renders it under one header.
  */
 export type SectionFilters = {
-  teamId?: string;
   kind?: string;
   tagIds?: string[];
   inboxId?: string;
@@ -80,7 +78,6 @@ export type SectionFilters = {
  * rather than shown wrong — see `folderSections`.
  */
 const SECTION_KEYS = new Set([
-  'teamId',
   'kind',
   'tagIds',
   'inboxId',
@@ -102,8 +99,6 @@ export function ConversationListPane({
   allTags = [],
   agents = [],
   inboxes = [],
-  teams = [],
-  myTeamIds = [],
   folders = [],
   draftConversationIds = [],
 }: {
@@ -117,9 +112,6 @@ export function ConversationListPane({
   allTags?: { id: string; name: string; color: string }[];
   agents?: { id: string; name: string | null; email: string }[];
   inboxes?: { id: string; name: string }[];
-  teams?: { id: string; name: string; color: string }[];
-  /** Teams the signed-in user is on, for the `team=mine` filter. */
-  myTeamIds?: string[];
   /** Folders set to render as sections inside this list (the split inbox). */
   folders?: { id: string; name: string; filters: SectionFilters }[];
 }) {
@@ -178,7 +170,6 @@ export function ConversationListPane({
   const assignee = searchParams.get('assignee');
   const statusFilter = searchParams.get('status') ?? 'active';
   const inboxFilter = searchParams.get('inbox');
-  const teamFilter = searchParams.get('team');
   const kindFilter = searchParams.get('kind');
   const wordsFilter = searchParams.get('words')?.split(',').filter(Boolean) ?? [];
   const tagFilter = searchParams.get('tags')?.split(',').filter(Boolean) ?? [];
@@ -195,16 +186,8 @@ export function ConversationListPane({
   // counts come from SQL, which is what keeps them accurate beyond this window.
   const filtered = useMemo(() => {
     const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
-    const myTeams = new Set(myTeamIds);
     const rows = conversations.filter((c) => {
       if (inboxFilter && c.inboxId !== inboxFilter) return false;
-      // Team routing mirrors the SQL exactly: 'mine' with no memberships
-      // matches nothing, not everything.
-      if (teamFilter === 'none' && c.assignedTeamId) return false;
-      if (teamFilter === 'mine' && !(c.assignedTeamId && myTeams.has(c.assignedTeamId)))
-        return false;
-      if (teamFilter && teamFilter !== 'mine' && teamFilter !== 'none' && c.assignedTeamId !== teamFilter)
-        return false;
       if (kindFilter && c.kind !== kindFilter) return false;
       // Same rule as the SQL in buildConversationWhere — preview + title, so
       // a folder's badge count and its visible rows can never disagree.
@@ -274,10 +257,8 @@ export function ConversationListPane({
     assignee,
     statusFilter,
     inboxFilter,
-    teamFilter,
     kindFilter,
     wordsFilter.join(','),
-    myTeamIds.join(','),
     query,
     currentUserId,
     // Arrays are rebuilt each render; compare by value to avoid a render loop.
@@ -311,7 +292,6 @@ export function ConversationListPane({
    */
   const folderSections = useMemo(() => {
     if (!canGroup || folders.length === 0) return [];
-    const myTeams = new Set(myTeamIds);
     const claimed = new Set<string>();
     const out: { id: string; name: string; rows: typeof filtered }[] = [];
 
@@ -329,11 +309,6 @@ export function ConversationListPane({
         if (claimed.has(c.id)) return false;
         if (f.kind && c.kind !== f.kind) return false;
         if (f.inboxId && c.inboxId !== f.inboxId) return false;
-        if (f.teamId === 'none' && c.assignedTeamId) return false;
-        if (f.teamId === 'mine' && !(c.assignedTeamId && myTeams.has(c.assignedTeamId)))
-          return false;
-        if (f.teamId && f.teamId !== 'mine' && f.teamId !== 'none' && c.assignedTeamId !== f.teamId)
-          return false;
         if (f.assignee === 'me' && c.assigneeId !== currentUserId) return false;
         else if (f.assignee === 'unassigned' && c.assigneeId) return false;
         // A folder can name a specific teammate, not just me/unassigned.
@@ -373,7 +348,7 @@ export function ConversationListPane({
       out.push({ id: folder.id, name: folder.name, rows });
     }
     return out;
-  }, [filtered, folders, canGroup, myTeamIds, currentUserId, draftIds]);
+  }, [filtered, folders, canGroup, currentUserId, draftIds]);
 
   const folderClaimedIds = useMemo(
     () => new Set(folderSections.flatMap((s) => s.rows.map((r) => r.id))),
@@ -609,7 +584,7 @@ export function ConversationListPane({
         </div>
       </div>
 
-      <FilterBar allTags={allTags} agents={agents} inboxes={inboxes} teams={teams} />
+      <FilterBar allTags={allTags} agents={agents} inboxes={inboxes} />
 
       <AnimatePresence>
         {selected.size > 0 && (
@@ -804,7 +779,6 @@ export function ConversationListPane({
                 Boolean(c.slaBreachedAt) ||
                 Boolean(c.nextResponseDueAt && c.status !== 'closed') ||
                 (c.status !== 'open' && c.status !== 'closed') ||
-                Boolean(c.assignedTeam) ||
                 (showChannels && Boolean(c.inbox)) ||
                 (c.tags?.length ?? 0) > 0;
 
@@ -974,22 +948,6 @@ export function ConversationListPane({
                               {c.status}
                             </Badge>
                           )
-                        )}
-                        {/* Which team owns this. Shown whenever routed, not
-                            only in multi-team workspaces — "whose is this" is
-                            the question a shared inbox exists to answer. */}
-                        {c.assignedTeam && (
-                          <span
-                            className="type-caption inline-flex items-center gap-1 rounded-md px-1.5 py-px font-medium"
-                            style={{
-                              backgroundColor: `${c.assignedTeam.color}18`,
-                              color: c.assignedTeam.color,
-                            }}
-                            title={`Team: ${c.assignedTeam.name}`}
-                          >
-                            <UsersRound className="h-2.5 w-2.5" />
-                            {c.assignedTeam.name}
-                          </span>
                         )}
                         {showChannels && c.inbox && (
                           <span

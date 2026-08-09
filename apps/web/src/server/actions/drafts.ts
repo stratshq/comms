@@ -4,7 +4,7 @@ import { and, eq, desc, isNotNull, sql } from '@comms/db';
 import { drafts, conversations, users } from '@comms/db';
 import { publishEvent } from '@comms/core';
 import { db } from '@/server/db';
-import { isAdminRole, requireUser } from '@/lib/session';
+import { can, requireDbUser, requireUser } from '@/lib/session';
 import { sendMessage, type SendResult } from './inbox';
 
 /**
@@ -179,8 +179,8 @@ export async function unshareDraft(
   conversationId: string,
   authorUserId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const me = await requireUser();
-  if (me.id !== authorUserId && !isAdminRole(me.role)) {
+  const me = await requireDbUser();
+  if (me.id !== authorUserId && !can(me, 'workspace.manage')) {
     return { ok: false, error: 'Only the author or an admin can put a shared draft back.' };
   }
   await db

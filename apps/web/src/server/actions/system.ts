@@ -17,7 +17,7 @@ import {
   type ResolvedProvider,
 } from '@comms/ai';
 import { db } from '@/server/db';
-import { requireAdmin } from '@/lib/session';
+import { requirePermission } from '@/lib/session';
 import { getVersionInfo } from '@/server/system';
 
 export type SystemResult = { ok: true } | { ok: false; error: string };
@@ -33,7 +33,7 @@ export async function addAiProvider(input: {
   model: string;
   makeActive?: boolean;
 }): Promise<SystemResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
 
   const type = input.type as ProviderType;
   if (!PROVIDER_TYPES.includes(type)) return { ok: false, error: 'Unknown provider type.' };
@@ -77,7 +77,7 @@ export async function addAiProvider(input: {
 
 /** Make one provider the active one (or none, passing null). */
 export async function setActiveAiProvider(id: string | null): Promise<SystemResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
   await db.update(aiProviders).set({ isActive: false }).where(eq(aiProviders.isActive, true));
   if (id) {
     const row = await db.query.aiProviders.findFirst({ where: eq(aiProviders.id, id) });
@@ -90,7 +90,7 @@ export async function setActiveAiProvider(id: string | null): Promise<SystemResu
 }
 
 export async function deleteAiProvider(id: string): Promise<SystemResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
   await db.delete(aiProviders).where(eq(aiProviders.id, id));
   resetProviderCache();
   revalidatePath('/settings/admin');
@@ -107,7 +107,7 @@ export type TestResult =
  * a real customer-facing draft to find out the key is wrong.
  */
 export async function testAiProvider(id: string): Promise<TestResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
   const row = await db.query.aiProviders.findFirst({ where: eq(aiProviders.id, id) });
   if (!row) return { ok: false, error: 'Provider not found.' };
 
@@ -135,7 +135,7 @@ export async function testAiProvider(id: string): Promise<TestResult> {
 
 /** Save the runtime-tunable config knobs (Config tab). */
 export async function saveRuntimeOverrides(input: RuntimeOverrides): Promise<SystemResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
   await setRuntimeOverrides(clampRuntimeOverrides(input));
   revalidatePath('/settings/admin');
   return { ok: true };
@@ -143,7 +143,7 @@ export async function saveRuntimeOverrides(input: RuntimeOverrides): Promise<Sys
 
 /** Force a fresh "is there a newer version" check. */
 export async function recheckVersion(): Promise<SystemResult> {
-  await requireAdmin();
+  await requirePermission('system.admin');
   await getVersionInfo(true);
   revalidatePath('/settings/admin');
   return { ok: true };

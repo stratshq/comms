@@ -11,7 +11,7 @@ import {
   type ViewFilters,
 } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser, requireAdmin } from '@/lib/session';
+import { requireUser, requirePermission } from '@/lib/session';
 
 export type ViewResult = { ok: true } | { ok: false; error: string };
 
@@ -59,7 +59,7 @@ export async function updateSavedView(input: {
   const user = await requireUser();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, input.id) });
   if (!view) return { ok: false, error: 'Folder not found.' };
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
 
   const patch: Partial<typeof savedViews.$inferInsert> = {};
   if (input.name !== undefined) {
@@ -108,7 +108,7 @@ export async function getSplitInboxState(): Promise<Record<SplitKind, boolean>> 
  * can never disagree with what the inbox actually shows.
  */
 export async function setSplitInboxFolder(kind: string, enabled: boolean): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   if (!(SPLIT_KINDS as readonly string[]).includes(kind)) {
     return { ok: false, error: 'Unknown split-inbox section.' };
   }
@@ -143,7 +143,7 @@ export async function deleteSavedView(id: string): Promise<ViewResult> {
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
   // Owners can delete their own; shared views need admin.
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
   await db.delete(savedViews).where(eq(savedViews.id, id));
   revalidatePath('/inbox');
   revalidatePath('/settings/views');
@@ -154,7 +154,7 @@ export async function renameSavedView(id: string, name: string): Promise<ViewRes
   const user = await requireUser();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
   await db.update(savedViews).set({ name: name.trim() }).where(eq(savedViews.id, id));
   revalidatePath('/inbox');
   return { ok: true };
@@ -168,7 +168,7 @@ export async function renameSavedView(id: string, name: string): Promise<ViewRes
  * source. Fixes the inevitable "billing" / "Billing" duplication.
  */
 export async function mergeTags(sourceId: string, targetId: string): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   if (sourceId === targetId) return { ok: false, error: 'Pick two different tags.' };
 
   const rows = await db
@@ -224,7 +224,7 @@ export async function approveTagSuggestion(
   id: string,
   color = '#71717a',
 ): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   const suggestion = await db.query.tagSuggestions.findFirst({
     where: eq(tagSuggestions.id, id),
   });
@@ -260,7 +260,7 @@ export async function approveTagSuggestion(
 }
 
 export async function dismissTagSuggestion(id: string): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   await db
     .update(tagSuggestions)
     .set({ dismissedAt: new Date() })

@@ -266,9 +266,6 @@ export async function runAutomations(
     if (a.setStatus) patch.status = a.setStatus;
     if (a.setPriority) patch.priority = a.setPriority;
     if (a.assignToUserId !== undefined) patch.assigneeId = a.assignToUserId;
-    // Route to a team. Declared in the action type since the first schema and
-    // never executed until now — a rule that silently did nothing.
-    if (a.assignToTeamId !== undefined) patch.assignedTeamId = a.assignToTeamId;
     if (a.mute) patch.mutedAt = new Date();
     if (a.snoozeMinutes) {
       patch.status = 'snoozed';

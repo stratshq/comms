@@ -10,7 +10,6 @@ import {
   notifications,
   inboxes,
   contacts,
-  teams,
   resolvePreferences,
   getRuntimeOverrides,
 } from '@comms/db';
@@ -282,7 +281,6 @@ export async function updateConversation(input: {
   status?: 'open' | 'pending' | 'snoozed' | 'closed';
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   assigneeId?: string | null;
-  assignedTeamId?: string | null;
   snoozedUntil?: string | null;
 }): Promise<ActionResult> {
   const user = await requireUser();
@@ -306,16 +304,6 @@ export async function updateConversation(input: {
   if (input.assigneeId !== undefined && input.assigneeId !== conv.assigneeId) {
     patch.assigneeId = input.assigneeId;
     events.push(input.assigneeId ? `assigned the ticket` : `unassigned the ticket`);
-  }
-  if (input.assignedTeamId !== undefined && input.assignedTeamId !== conv.assignedTeamId) {
-    patch.assignedTeamId = input.assignedTeamId;
-    const team = input.assignedTeamId
-      ? await db.query.teams.findFirst({
-          where: eq(teams.id, input.assignedTeamId),
-          columns: { name: true },
-        })
-      : null;
-    events.push(team ? `routed this to ${team.name}` : `removed the team`);
   }
   if (input.snoozedUntil !== undefined) {
     patch.snoozedUntil = input.snoozedUntil ? new Date(input.snoozedUntil) : null;

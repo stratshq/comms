@@ -1,7 +1,6 @@
-import { pgTable, text, jsonb, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, jsonb, timestamp, unique } from 'drizzle-orm/pg-core';
 import { genId, timestamps } from './_helpers.js';
 import { identityKind } from './enums.js';
-import { teams } from './teams.js';
 
 /** A person the team communicates with. Aggregates one or more identities. */
 export const contacts = pgTable(
@@ -12,13 +11,6 @@ export const contacts = pgTable(
   avatarUrl: text('avatar_url'),
   company: text('company'),
   notes: text('notes'),
-  /**
-   * The team that owns this client. Set once on the CONTACT, not on each
-   * thread: a thread's topic changes, but "Acme is an enterprise account"
-   * doesn't. Every new conversation from them inherits it at ingest, so
-   * routing a client is a one-time act rather than ongoing filing.
-   */
-  ownerTeamId: text('owner_team_id').references(() => teams.id, { onDelete: 'set null' }),
   /** Arbitrary structured attributes shown on the contact panel. */
   attributes: jsonb('attributes').$type<Record<string, string>>().notNull().default({}),
   /**
@@ -32,7 +24,6 @@ export const contacts = pgTable(
   avatarStorageKey: text('avatar_storage_key'),
   ...timestamps,
   },
-  (c) => [index('contacts_owner_team_idx').on(c.ownerTeamId)],
 );
 
 /**

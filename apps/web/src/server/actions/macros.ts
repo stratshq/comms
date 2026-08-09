@@ -77,10 +77,6 @@ export async function applyMacro(input: {
     patch.assigneeId = a.assignToUserId;
     applied.push(a.assignToUserId ? 'assigned' : 'unassigned');
   }
-  if (a.assignToTeamId !== undefined && a.assignToTeamId !== conv.assignedTeamId) {
-    patch.assignedTeamId = a.assignToTeamId;
-    applied.push(a.assignToTeamId ? 'routed to a team' : 'team cleared');
-  }
   if (Object.keys(patch).length > 0) {
     await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));
   }
