@@ -207,11 +207,6 @@ export function HealthTab({
                 until then, features using the newest columns will error.
               </p>
             )}
-            {health.schema.latestAppliedAt && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Last migration applied {relativeTime(health.schema.latestAppliedAt)}.
-              </p>
-            )}
           </div>
         </CardContent>
       </Card>

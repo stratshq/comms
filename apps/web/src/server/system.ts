@@ -124,7 +124,6 @@ export interface SystemHealth {
     expected: number;
     pending: number;
     upToDate: boolean;
-    latestAppliedAt: string | null;
     error: string | null;
   };
   queues: { name: string; waiting: number; active: number; delayed: number; failed: number }[];
@@ -245,21 +244,20 @@ export async function getSystemHealth(): Promise<SystemHealth> {
 async function getSchemaState(): Promise<SystemHealth['schema']> {
   const expected = EXPECTED_MIGRATION_COUNT;
   try {
+    // Count only. The table's `created_at` is NOT when the migration ran — it
+    // is the migration's own timestamp copied from the journal, identical
+    // across every database that applies the same build — so reporting it as
+    // "last applied" would state a falsehood with a confident face.
     const res = await db.execute(
-      sql`select count(*)::int as n, max(created_at) as latest from drizzle.__drizzle_migrations`,
+      sql`select count(*)::int as n from drizzle.__drizzle_migrations`,
     );
-    const row = (res as unknown as { rows?: { n?: number; latest?: string | number | null }[] })
-      .rows?.[0];
+    const row = (res as unknown as { rows?: { n?: number }[] }).rows?.[0];
     const applied = Number(row?.n ?? 0);
-    // Drizzle stores created_at as epoch milliseconds.
-    const latestAppliedAt =
-      row?.latest != null ? new Date(Number(row.latest)).toISOString() : null;
     return {
       applied,
       expected,
       pending: Math.max(0, expected - applied),
       upToDate: applied >= expected,
-      latestAppliedAt,
       error: null,
     };
   } catch (err) {
@@ -268,7 +266,6 @@ async function getSchemaState(): Promise<SystemHealth['schema']> {
       expected,
       pending: 0,
       upToDate: false,
-      latestAppliedAt: null,
       error: (err as Error).message,
     };
   }

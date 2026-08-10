@@ -16,6 +16,7 @@ import {
   CalendarClock,
   Sparkles,
   Layers,
+  Activity,
 } from 'lucide-react';
 import { Logo } from '@/components/brand';
 import { UserMenu } from '@/components/app/user-menu';
@@ -109,7 +110,10 @@ export function Sidebar({
   counts,
   inboxes,
   views = [],
+  showAdminPanel = false,
 }: {
+  /** Surfaces a direct Admin panel row for people who can open it. */
+  showAdminPanel?: boolean;
   user: { name?: string | null; email?: string | null; image?: string | null };
   counts: {
     open: number;
@@ -281,10 +285,21 @@ export function Sidebar({
         <SectionLabel>Workspace</SectionLabel>
         <NavRow
           href="/settings"
-          active={pathname.startsWith('/settings')}
+          active={pathname.startsWith('/settings') && pathname !== '/settings/admin'}
           icon={Settings}
           label="Settings"
         />
+        {/* The machine room earns its own row rather than hiding at the end of
+            the settings list — it is where you go when something is wrong, and
+            that is the worst moment to be hunting for it. */}
+        {showAdminPanel && (
+          <NavRow
+            href="/settings/admin"
+            active={pathname === '/settings/admin'}
+            icon={Activity}
+            label="Admin panel"
+          />
+        )}
       </nav>
 
       <div className="border-t p-1.5">
