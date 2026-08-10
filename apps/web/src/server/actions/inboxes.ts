@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, sql } from '@comms/db';
 import { inboxes, conversations, messages, channelConnections } from '@comms/db';
 import { db } from '@/server/db';
-import { requirePermission } from '@/lib/session';
+import { requirePermission, requirePermissionForRead } from '@/lib/session';
 
 export type InboxResult = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -18,7 +18,7 @@ export interface InboxSummary {
 
 /** Counts used to warn before anything destructive. */
 export async function getInboxSummary(inboxId: string): Promise<InboxSummary | null> {
-  await requirePermission('inboxes.manage');
+  await requirePermissionForRead('inboxes.manage');
   const inbox = await db.query.inboxes.findFirst({ where: eq(inboxes.id, inboxId) });
   if (!inbox) return null;
 

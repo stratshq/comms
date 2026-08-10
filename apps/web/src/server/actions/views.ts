@@ -11,7 +11,7 @@ import {
   type ViewFilters,
 } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser, requirePermission } from '@/lib/session';
+import { requireUser, requirePermission, requireWriter } from '@/lib/session';
 
 export type ViewResult = { ok: true } | { ok: false; error: string };
 
@@ -25,7 +25,7 @@ export async function createSavedView(input: {
   /** 'sidebar' is a nav row; 'section' is a header inside the inbox list. */
   display?: 'sidebar' | 'section';
 }): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const name = input.name.trim();
   if (!name) return { ok: false, error: 'Give the folder a name.' };
 
@@ -56,7 +56,7 @@ export async function updateSavedView(input: {
   isShared?: boolean;
   sortOrder?: number;
 }): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, input.id) });
   if (!view) return { ok: false, error: 'Folder not found.' };
   if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
@@ -139,7 +139,7 @@ export async function setSplitInboxFolder(kind: string, enabled: boolean): Promi
 }
 
 export async function deleteSavedView(id: string): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
   // Owners can delete their own; shared views need admin.
@@ -151,7 +151,7 @@ export async function deleteSavedView(id: string): Promise<ViewResult> {
 }
 
 export async function renameSavedView(id: string, name: string): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
   if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');

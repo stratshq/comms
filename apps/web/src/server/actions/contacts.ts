@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { eq } from '@comms/db';
 import { contacts } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -19,7 +19,7 @@ export async function nameContact(input: {
   name: string;
   company?: string | null;
 }): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   const name = input.name.trim();
   if (!name) return { ok: false, error: 'Name is required.' };
   if (name.length > 80) return { ok: false, error: 'Name must be 80 characters or fewer.' };

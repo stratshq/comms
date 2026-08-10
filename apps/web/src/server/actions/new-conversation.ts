@@ -15,7 +15,7 @@ import {
   logger,
 } from '@comms/core';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { formatAddress } from '@/lib/naming';
 import { getConnectionForInbox } from '@/server/queries';
 
@@ -114,7 +114,7 @@ export async function startConversation(input: {
   message: string;
   inboxId?: string;
 }): Promise<StartResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const address = input.address.trim();
   const body = input.message.trim();

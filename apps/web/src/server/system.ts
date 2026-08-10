@@ -1,5 +1,5 @@
 import 'server-only';
-import { asc, eq, sql, roleGrants } from '@comms/db';
+import { asc, eq, sql, roleGrants, EXPECTED_MIGRATION_COUNT } from '@comms/db';
 import { aiProviders, channelConnections, inboxes, users } from '@comms/db';
 import {
   QUEUE_NAMES,
@@ -98,10 +98,35 @@ export async function getVersionInfo(force = false): Promise<VersionInfo> {
 
 // ---- Health -----------------------------------------------------------------
 
+/**
+ * One word for "can people use this right now".
+ *
+ * `outage` is reserved for the two dependencies nothing works without —
+ * Postgres and Redis. A dead worker is `degraded`, not an outage: the app
+ * still opens and history still reads, but nothing sends. Calling that an
+ * outage would cry wolf; calling a dead database "degraded" would hide one.
+ */
+export type ServiceStatus = 'operational' | 'degraded' | 'outage';
+
 export interface SystemHealth {
+  status: ServiceStatus;
   db: { ok: boolean; latencyMs: number | null; sizeBytes: number | null; error: string | null };
   redis: { ok: boolean; latencyMs: number | null; error: string | null };
   worker: { ok: boolean; lastSeenAt: string | null };
+  /** The web app answering this request — by definition up, but worth stating. */
+  app: { ok: boolean; uptimeSeconds: number; memoryMb: number; nodeVersion: string };
+  /**
+   * Applied migrations vs what this build ships. Pending migrations are the
+   * quiet cause of "column does not exist" after a partial deploy.
+   */
+  schema: {
+    applied: number;
+    expected: number;
+    pending: number;
+    upToDate: boolean;
+    latestAppliedAt: string | null;
+    error: string | null;
+  };
   queues: { name: string; waiting: number; active: number; delayed: number; failed: number }[];
   bridges: { inboxName: string; status: string; lastHeartbeatAt: string | null }[];
   storageConfigured: boolean;
@@ -174,10 +199,28 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     .innerJoin(inboxes, eq(channelConnections.inboxId, inboxes.id))
     .catch(() => []);
 
+  const schema = await getSchemaState();
+
+  // Rollup. Datastores are load-bearing; everything else degrades.
+  const status: ServiceStatus =
+    !dbHealth.ok || !redisHealth.ok
+      ? 'outage'
+      : !workerAlive || schema.pending > 0 || bridgeRows.some((b) => b.status === 'error')
+        ? 'degraded'
+        : 'operational';
+
   return {
+    status,
     db: dbHealth,
     redis: redisHealth,
     worker: { ok: Boolean(workerAlive), lastSeenAt: workerLastSeen?.toISOString() ?? null },
+    app: {
+      ok: true,
+      uptimeSeconds: Math.round(process.uptime()),
+      memoryMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+      nodeVersion: process.version,
+    },
+    schema,
     queues,
     bridges: bridgeRows.map((b) => ({
       inboxName: b.inboxName,
@@ -190,12 +233,70 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   };
 }
 
+/**
+ * Compare migrations applied to this database against the migrations this
+ * build ships. Drizzle records one row per applied migration in
+ * `drizzle.__drizzle_migrations`; the journal is the build's own count.
+ *
+ * A mismatch means the code and the schema disagree — usually a deploy where
+ * the pre-deploy migration step did not run — and it is worth saying out loud
+ * rather than waiting for a query to fail.
+ */
+async function getSchemaState(): Promise<SystemHealth['schema']> {
+  const expected = EXPECTED_MIGRATION_COUNT;
+  try {
+    const res = await db.execute(
+      sql`select count(*)::int as n, max(created_at) as latest from drizzle.__drizzle_migrations`,
+    );
+    const row = (res as unknown as { rows?: { n?: number; latest?: string | number | null }[] })
+      .rows?.[0];
+    const applied = Number(row?.n ?? 0);
+    // Drizzle stores created_at as epoch milliseconds.
+    const latestAppliedAt =
+      row?.latest != null ? new Date(Number(row.latest)).toISOString() : null;
+    return {
+      applied,
+      expected,
+      pending: Math.max(0, expected - applied),
+      upToDate: applied >= expected,
+      latestAppliedAt,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      applied: 0,
+      expected,
+      pending: 0,
+      upToDate: false,
+      latestAppliedAt: null,
+      error: (err as Error).message,
+    };
+  }
+}
+
 // ---- People (General tab) -----------------------------------------------------
+
+/** One row of the General tab's access matrix. */
+export interface AdministratorRow {
+  id: string;
+  name: string | null;
+  email: string;
+  image: string | null;
+  role: string;
+  status: string;
+  /** Role grants everything, including permissions added in future versions. */
+  superAccess: boolean;
+  adminPanel: boolean;
+  impersonate: boolean;
+  /** Can this account be viewed as? Super accounts deliberately cannot. */
+  viewable: boolean;
+  lastSeenAt: Date | null;
+}
 
 export async function getAdminOverview() {
   const [allWithRole, recent] = await Promise.all([
     db.query.users.findMany({
-      columns: { id: true, name: true, email: true, image: true },
+      columns: { id: true, name: true, email: true, image: true, status: true, lastSeenAt: true },
       with: { role: { columns: { name: true, permissions: true } } },
       orderBy: [asc(users.name)],
     }),
@@ -207,12 +308,31 @@ export async function getAdminOverview() {
       limit: 8,
     }),
   ]);
-  // "Administrators" = anyone whose role grants system administration.
-  const admins = allWithRole
-    .filter((u) => roleGrants(u.role?.permissions, 'system.admin'))
-    .map((u) => ({ id: u.id, name: u.name, email: u.email, image: u.image, role: u.role?.name ?? '—' }));
+
+  const toRow = (u: (typeof allWithRole)[number]): AdministratorRow => {
+    const perms = u.role?.permissions ?? [];
+    const superAccess = perms.includes('*');
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      image: u.image,
+      role: u.role?.name ?? '—',
+      status: u.status,
+      superAccess,
+      adminPanel: roleGrants(perms, 'system.admin'),
+      impersonate: roleGrants(perms, 'system.impersonate'),
+      viewable: !superAccess && u.status === 'active',
+      lastSeenAt: u.lastSeenAt,
+    };
+  };
+
+  const rows = allWithRole.map(toRow);
   return {
-    admins,
+    /** Anyone with any elevated access — the people worth listing here. */
+    administrators: rows.filter((r) => r.superAccess || r.adminPanel || r.impersonate),
+    /** Everyone, for the view-as picker. */
+    allUsers: rows,
     recent: recent.map((u) => ({
       id: u.id,
       name: u.name,

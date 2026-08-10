@@ -5,7 +5,7 @@ import { eq, sql } from '@comms/db';
 import { macros, conversations, conversationTags, messages } from '@comms/db';
 import { renderTemplate, firstNameOf, type TemplateContext } from '@comms/core';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getOrgSettings } from '@/server/settings';
 
 export type MacroApplyResult =
@@ -24,7 +24,7 @@ export async function applyMacro(input: {
   macroId: string;
   conversationId: string;
 }): Promise<MacroApplyResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const macro = await db.query.macros.findFirst({ where: eq(macros.id, input.macroId) });
   if (!macro) return { ok: false, error: 'Macro not found.' };

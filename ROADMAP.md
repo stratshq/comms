@@ -80,12 +80,17 @@ What makes Comms enterprise rather than a personal bridge.
 - ✅ Split inbox by correspondent — People / Unknown / Automated / Verification
   codes, classified from traffic at ingest, with a copy-the-code chip on OTP rows.
   Shipped ON by default (seeded shared folders, toggleable in Settings → Workspace)
-- ✅ **Admin panel** (Settings → Other) — version + update check, administrators
-  and recent users, AI provider management, runtime-tunable config (undo window,
-  send caps — no redeploy), and a Health tab: Postgres/Redis latency, queue
-  depths, worker heartbeat, bridge status
-- ✅ Automations can route to a team, mute a thread, and condition on the
-  correspondent kind
+- ✅ **Admin panel** (Settings → Other) — six tabs, linkable by URL:
+  - **General** — about/version + update check, an administrator access matrix
+    (super · admin panel · view-as), and read-only **view as a user**
+  - **Apps** — catalogue placeholder
+  - **AI** — multi-provider keys and models; usage reporting flagged enterprise
+  - **Config** — runtime-editable email/SMTP (no redeploy) with a real test
+    send, send caps and the undo window, plus read-only deployment config
+  - **Health** — operational/degraded/outage rollup, Postgres/Redis/worker/web,
+    queue depths, bridge status, and migration state (schema drift detection)
+  - **Enterprise** — licence key storage and feature gating
+- ✅ Automations can mute a thread and condition on the correspondent kind
 - ⬜ Merge/split/link conversations; cross-handle entity resolution
 - ⬜ Full business-hours-aware SLA windows
 

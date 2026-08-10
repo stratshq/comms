@@ -41,8 +41,14 @@ export const PERMISSIONS = [
   },
   {
     key: 'system.admin',
-    label: 'System administration',
-    description: 'Admin panel: updates, AI providers, runtime config, and health.',
+    label: 'Admin panel access',
+    description: 'The machine room: version, AI providers, runtime config, and service health.',
+  },
+  {
+    key: 'system.impersonate',
+    label: 'View as another user',
+    description:
+      'Open a read-only session as someone else to see exactly what they see. Every start and stop is recorded.',
   },
 ] as const;
 

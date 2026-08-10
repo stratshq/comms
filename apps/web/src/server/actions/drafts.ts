@@ -4,7 +4,7 @@ import { and, eq, desc, isNotNull, sql } from '@comms/db';
 import { drafts, conversations, users } from '@comms/db';
 import { publishEvent } from '@comms/core';
 import { db } from '@/server/db';
-import { can, requireDbUser, requireUser } from '@/lib/session';
+import { can, requireUser, requireWriter } from '@/lib/session';
 import { sendMessage, type SendResult } from './inbox';
 
 /**
@@ -31,7 +31,7 @@ export type SaveDraftInput = {
  * marker forever.
  */
 export async function saveDraft(input: SaveDraftInput): Promise<{ ok: boolean }> {
-  const me = await requireUser();
+  const me = await requireWriter();
   const body = input.body ?? '';
 
   if (!body.trim()) {
@@ -65,7 +65,7 @@ export async function saveDraft(input: SaveDraftInput): Promise<{ ok: boolean }>
 
 /** Drop the draft once its message is actually sent. */
 export async function clearDraft(conversationId: string): Promise<{ ok: boolean }> {
-  const me = await requireUser();
+  const me = await requireWriter();
   await db
     .delete(drafts)
     .where(and(eq(drafts.conversationId, conversationId), eq(drafts.userId, me.id)));
@@ -143,7 +143,7 @@ export interface SharedDraft {
 
 /** Share the caller's current draft with the team for review. */
 export async function shareMyDraft(conversationId: string): Promise<{ ok: boolean; error?: string }> {
-  const me = await requireUser();
+  const me = await requireWriter();
   const [row] = await db
     .update(drafts)
     .set({ sharedAt: new Date() })
@@ -179,7 +179,7 @@ export async function unshareDraft(
   conversationId: string,
   authorUserId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const me = await requireDbUser();
+  const me = await requireWriter();
   if (me.id !== authorUserId && !can(me, 'workspace.manage')) {
     return { ok: false, error: 'Only the author or an admin can put a shared draft back.' };
   }
@@ -208,7 +208,7 @@ export async function sendSharedDraft(
   conversationId: string,
   authorUserId: string,
 ): Promise<SendResult> {
-  await requireUser();
+  await requireWriter();
   const [draft] = await db
     .select({ body: drafts.body, sharedAt: drafts.sharedAt })
     .from(drafts)
@@ -241,7 +241,7 @@ export async function restoreSharedDraft(
   authorUserId: string,
   body: string,
 ): Promise<{ ok: boolean }> {
-  await requireUser();
+  await requireWriter();
   if (!body.trim()) return { ok: true };
   await db
     .insert(drafts)

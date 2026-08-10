@@ -7,6 +7,7 @@ export {
   resetRuntimeOverridesCache,
   type RuntimeOverrides,
 } from './runtime.js';
+export { EXPECTED_MIGRATION_COUNT } from './migrations-meta.js';
 export * as tables from './schema/index.js';
 export * from './schema/index.js';
 

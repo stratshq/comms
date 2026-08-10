@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import { eq } from '@comms/db';
 import { users, type UserPreferences } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -20,7 +20,7 @@ export async function updateProfile(input: {
   name: string;
   image?: string | null;
 }): Promise<ActionResult> {
-  const me = await requireUser();
+  const me = await requireWriter();
 
   const name = input.name.trim();
   if (!name) return { ok: false, error: 'Name is required.' };
@@ -43,7 +43,7 @@ export async function changePassword(input: {
   currentPassword: string;
   newPassword: string;
 }): Promise<ActionResult> {
-  const me = await requireUser();
+  const me = await requireWriter();
 
   if (input.newPassword.length < 8) {
     return { ok: false, error: 'New password must be 8+ characters.' };
@@ -75,7 +75,7 @@ export async function changePassword(input: {
 
 /** Save your personal signature (empty string removes it). */
 export async function updateSignaturePreference(signature: string): Promise<ActionResult> {
-  const me = await requireUser();
+  const me = await requireWriter();
   const trimmed = signature.trim().slice(0, 500);
 
   const row = await db.query.users.findFirst({
@@ -93,7 +93,7 @@ export async function updateSignaturePreference(signature: string): Promise<Acti
 
 /** Merge a patch into your own notification preferences. */
 export async function updateNotificationPreferences(patch: UserPreferences): Promise<ActionResult> {
-  const me = await requireUser();
+  const me = await requireWriter();
 
   const row = await db.query.users.findFirst({
     where: eq(users.id, me.id),
@@ -120,7 +120,7 @@ export async function updateKeymap(input: {
   overrides: Record<string, string[]>;
   enterSends: boolean;
 }): Promise<ActionResult> {
-  const me = await requireUser();
+  const me = await requireWriter();
 
   const [row] = await db
     .select({ preferences: users.preferences })

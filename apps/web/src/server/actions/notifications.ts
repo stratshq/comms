@@ -3,7 +3,7 @@
 import { and, desc, eq, isNull, resolvePreferences } from '@comms/db';
 import { notifications, users } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 
 export interface NotificationItem {
   id: string;
@@ -42,7 +42,7 @@ export async function listNotifications(): Promise<{
 }
 
 export async function markNotificationRead(id: string): Promise<{ ok: true }> {
-  const user = await requireUser();
+  const user = await requireWriter();
   await db
     .update(notifications)
     .set({ readAt: new Date() })
@@ -51,7 +51,7 @@ export async function markNotificationRead(id: string): Promise<{ ok: true }> {
 }
 
 export async function markAllNotificationsRead(): Promise<{ ok: true }> {
-  const user = await requireUser();
+  const user = await requireWriter();
   await db
     .update(notifications)
     .set({ readAt: new Date() })

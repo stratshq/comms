@@ -9,6 +9,7 @@ import {
 import { Sidebar } from '@/components/app/sidebar';
 import { RealtimeProvider } from '@/components/app/realtime-provider';
 import { ChannelHealthBanner } from '@/components/app/channel-health-banner';
+import { ImpersonationBanner } from '@/components/app/impersonation-banner';
 import { CommandPalette } from '@/components/app/command-palette';
 import { pendingCount } from '@/server/actions/scheduled';
 import { KeymapProvider } from '@/components/app/keymap-provider';
@@ -70,6 +71,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     >
       <KeymapProvider preference={user.preferences?.keymap as KeymapPreference | undefined}>
       <div className="flex h-dvh flex-col overflow-hidden">
+        {user.impersonatedBy && (
+          <ImpersonationBanner
+            viewingAs={user.name ?? user.email}
+            actorName={user.impersonatedBy.name ?? user.impersonatedBy.email}
+          />
+        )}
         <ChannelHealthBanner initial={unhealthy} />
         <MobileTopBar />
         <div className="flex min-h-0 flex-1">

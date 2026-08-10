@@ -9,7 +9,7 @@ import {
   type AutomationActions,
 } from '@comms/db';
 import { db } from '@/server/db';
-import { requirePermission } from '@/lib/session';
+import { requirePermission, requirePermissionForRead } from '@/lib/session';
 import { setSetting } from '@/server/settings';
 
 export type RuleResult = { ok: true } | { ok: false; error: string };
@@ -166,7 +166,7 @@ export async function dryRunRules(input: {
   kind?: 'person' | 'unknown' | 'automated' | 'otp';
   atTime?: string;
 }): Promise<DryRunResult[]> {
-  await requirePermission('automations.manage');
+  await requirePermissionForRead('automations.manage');
 
   const rules = await db.query.automationRules.findMany({
     where: and(eq(automationRules.enabled, true), eq(automationRules.trigger, input.trigger)),
