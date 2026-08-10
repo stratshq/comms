@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Same palette as the product: strict monochrome, no accent hue in the chrome.
+ * Black is the accent. Dark mode is true black so OLED screens actually turn
+ * off. Green appears once, for "free forever" on the pricing table — a signal,
+ * not decoration.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --surface: 0 0% 100%;
+    --surface-sunken: 0 0% 97.6%;
+    --foreground: 0 0% 5%;
+
+    --primary: 0 0% 7%;
+    --primary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 95.5%;
+    --muted-foreground: 0 0% 44%;
+
+    --border: 0 0% 90.5%;
+    --border-strong: 0 0% 83%;
+
+    --success: 152 45% 38%;
+
+    --radius: 0.65rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 0 0% 0%;
+      --surface: 0 0% 4.5%;
+      --surface-sunken: 0 0% 7%;
+      --foreground: 0 0% 96%;
+
+      --primary: 0 0% 96%;
+      --primary-foreground: 0 0% 5%;
+
+      --muted: 0 0% 12%;
+      --muted-foreground: 0 0% 62%;
+
+      --border: 0 0% 16%;
+      --border-strong: 0 0% 24%;
+
+      --success: 152 40% 52%;
+    }
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'liga' 1,
+      'calt' 1;
+  }
+
+  /* The app uses tight, slightly negative tracking on display type. */
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight;
+  }
+}

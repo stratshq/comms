@@ -23,16 +23,18 @@
   "bugs": {
     "url": "https://github.com/byw1/comms/issues"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter @comms/db build && pnpm --filter @comms/core build && pnpm --filter @comms/ai build && pnpm --filter @comms/worker build && pnpm --filter @comms/web build",
+    "build": "pnpm --filter @comms/db build && pnpm --filter @comms/core build && pnpm --filter @comms/enterprise build && pnpm --filter @comms/ai build && pnpm --filter @comms/worker build && pnpm --filter @comms/web build",
+    "build:www": "pnpm --filter @comms/www build",
     "dev": "pnpm --parallel --filter @comms/web --filter @comms/worker dev",
     "dev:web": "pnpm --filter @comms/web dev",
     "dev:worker": "pnpm --filter @comms/worker dev",
+    "dev:www": "pnpm --filter @comms/www dev",
     "start:web": "pnpm --filter @comms/web start",
     "start:worker": "pnpm --filter @comms/worker start",
     "lint": "pnpm -r --no-bail lint",
@@ -48,6 +50,7 @@
   },
   "devDependencies": {
     "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.6.9",
     "typescript": "^5.7.3",
     "vitest": "^4.1.10"
   },

@@ -1,0 +1,126 @@
+                      Comms Enterprise Edition License
+                            Version 1.0, 2026
+
+Copyright (c) 2026 Comms contributors. All rights reserved.
+
+THIS DIRECTORY IS NOT OPEN SOURCE. The GNU Affero General Public License in the
+repository root does NOT apply to any file under `packages/enterprise/`, nor to
+any file elsewhere in this repository carrying the marker
+
+    /* @license Enterprise */
+
+within its first ten lines. Those files ("the Enterprise Software") are
+governed exclusively by this license.
+
+
+1. SOURCE AVAILABLE, NOT OPEN SOURCE
+
+   The Enterprise Software is published as source code deliberately. You can
+   read it, audit it, learn from it, and satisfy yourself about what it does
+   before you run it. That is not the same as an open source license, and this
+   document does not become one by being in a public repository.
+
+
+2. WHAT YOU MAY DO WITHOUT A SUBSCRIPTION
+
+   Without any subscription, payment, or notice to us, you may:
+
+   (a) view, read, and audit the source;
+   (b) copy and modify it for the purpose of development, evaluation, testing,
+       and security review;
+   (c) run it on a development or staging environment that is not used to serve
+       real end users; and
+   (d) contribute changes back to the project.
+
+   You may do all of the above indefinitely and free of charge.
+
+
+3. WHAT REQUIRES A SUBSCRIPTION
+
+   You may not use the Enterprise Software in production without a valid Comms
+   Enterprise subscription covering the number of seats and hosts in use.
+
+   "Production" means any use that serves real end users or supports the
+   operation of a business, whether or not you charge for it, and whether the
+   deployment is internal or customer-facing.
+
+   A subscription is granted as a non-exclusive, non-transferable,
+   non-sublicensable right to use the Enterprise Software in production for the
+   term and scope purchased. It terminates when the subscription lapses.
+
+
+4. WHAT YOU MAY NOT DO, WITH OR WITHOUT A SUBSCRIPTION
+
+   (a) Remove, disable, bypass, or circumvent the license key verification in
+       `src/license.ts` and `src/gate.ts`, or any other technical measure that
+       enforces the scope of a subscription; or distribute a modification whose
+       purpose or effect is to do so.
+   (b) Redistribute, sell, sublicense, rent, or host the Enterprise Software as
+       a standalone product or as part of a competing offering.
+   (c) Relicense the Enterprise Software, including under the AGPLv3, or
+       represent it as being open source.
+   (d) Use the Comms name, logo, or brand except to accurately describe the
+       origin of the software.
+
+   Section 4(a) does not restrict good-faith security research, nor publishing
+   the results of that research.
+
+
+5. RELATIONSHIP TO THE AGPLv3 PORTION
+
+   The AGPLv3 portion of Comms is a complete, working product on its own. It
+   does not depend on the Enterprise Software, and it never requires a license
+   key to run. Where the two meet, the Enterprise Software depends on the open
+   source portion and not the reverse.
+
+   Combining the open source portion with the Enterprise Software for your own
+   production use, under a valid subscription, does not place the Enterprise
+   Software under the AGPLv3 and does not oblige you to publish it. The
+   copyright holder can license its own work under two sets of terms at once;
+   that is what is happening here.
+
+   The AGPLv3's obligations continue to apply, in full, to the AGPLv3 portion.
+
+
+6. CONTRIBUTIONS
+
+   Contributions to this directory are accepted under CONTRIBUTING.md, which
+   includes a copyright license grant permitting distribution under both this
+   license and the AGPLv3. Contributors keep the copyright in their own work
+   and receive back a perpetual right to use their own contributions.
+
+
+7. TERM AND TERMINATION
+
+   This license applies for as long as you hold a copy of the Enterprise
+   Software. The rights in section 2 are perpetual. The production rights in
+   section 3 last only as long as the subscription that granted them.
+
+   Rights under section 3 terminate automatically if you materially breach this
+   license and do not cure the breach within 30 days of being notified of it.
+   On termination you must stop using the Enterprise Software in production;
+   the rights in section 2 survive.
+
+
+8. NO WARRANTY
+
+   THE ENTERPRISE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+
+9. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+   DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
+   OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE ENTERPRISE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN IT.
+
+
+10. QUESTIONS
+
+    If it is unclear whether your use requires a subscription, ask before you
+    deploy rather than after. The intent of this license is narrow: keep the
+    self-hosted product genuinely free and complete, and ask companies that
+    want billing, enterprise SSO, and compliance tooling in production to pay
+    for them.

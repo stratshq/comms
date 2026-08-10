@@ -1,0 +1,35 @@
+{
+  "name": "@comms/enterprise",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Comms Enterprise Edition — source-available, not open source. See ./LICENSE.",
+  "license": "SEE LICENSE IN LICENSE",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "license:keygen": "node scripts/issue-license.mjs keygen",
+    "license:sign": "node scripts/issue-license.mjs sign"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

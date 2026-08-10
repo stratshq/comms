@@ -8,7 +8,7 @@ Think Beeper for enterprise, with a help desk built in. Share an iMessage number
 assign conversations as tickets, use macros, and reply together — all from a clean, fast UI you host
 yourself.
 
-![License: MIT](https://img.shields.io/badge/license-MIT-black)
+![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-black)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-black)
 ![Self-hostable](https://img.shields.io/badge/self--hostable-Railway-black)
@@ -194,11 +194,14 @@ A pnpm monorepo, one Docker image, two runtime roles:
 
 ```
 apps/
-  web/      Next.js 15 (App Router) — UI, API routes, server actions, auth
-  worker/   BullMQ worker — inbound ingestion, outbound sends, attachments, backfill, heartbeats
+  web/        Next.js 15 (App Router) — UI, API routes, server actions, auth
+  worker/     BullMQ worker — inbound ingestion, outbound sends, attachments, backfill, heartbeats
+  www/        Marketing site — deploys separately, depends on no workspace package
 packages/
-  db/       Drizzle ORM schema + migrations + client (Postgres)
-  core/     Shared libs — config, crypto, Redis/queues, S3 storage, realtime, BlueBubbles client
+  db/         Drizzle ORM schema + migrations + client (Postgres)
+  core/       Shared libs — config, crypto, Redis/queues, S3 storage, realtime, BlueBubbles client
+  ai/         Claude-powered features (summarize, suggest reply, triage)
+  enterprise/ Paid edition — separately licensed, never required to run Comms
 ```
 
 - **Database:** Postgres via Drizzle ORM
@@ -254,4 +257,41 @@ Open http://localhost:3000 and complete the setup wizard to create your admin ac
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Comms is **AGPLv3** — see [LICENSE](./LICENSE).
+
+In practice, for almost everyone: run it for your team, free, forever, including
+commercially, with no seat limit and no license key. Fork it, modify it, deploy it
+anywhere. The one obligation the AGPL adds over the GPL only applies if you modify
+Comms *and* offer the modified version to other people over a network — then you owe
+those users your changes. Running it unmodified, or keeping your changes internal to
+your own company, requires nothing of you.
+
+### The one exception
+
+`packages/enterprise/` is **not** AGPLv3. It is source-available under the
+[Comms Enterprise Edition License](./packages/enterprise/LICENSE): free to read,
+modify, and run in development, but production use needs a subscription.
+
+It contains three things, and nothing else:
+
+| Feature | What it is |
+| --- | --- |
+| `billing` | Metered seats, plans, invoices, payment webhooks. Powers the hosted version. |
+| `sso` | SAML 2.0 / OIDC against a corporate IdP, SCIM provisioning, domain auto-join. |
+| `audit-log` | Retention windows and CSV / SIEM export over the audit trail. |
+
+**Everything else stays free, permanently.** The shared inbox, ticketing, macros,
+automations, RBAC, AI features and the BlueBubbles bridge are all AGPLv3. So are
+email + password, magic links, and Google/GitHub sign-in — only *enterprise IdP* SSO
+is paid. So is the `audit_logs` table and every write to it — only the retention and
+export surface on top is paid.
+
+Nothing in `packages/enterprise/` is required to run Comms, and the hosted version is
+this same repository with billing switched on, not a private fork.
+
+### Contributing
+
+Contributions are accepted under the terms in [CONTRIBUTING.md](./CONTRIBUTING.md),
+which include a license grant allowing the project to distribute contributions under
+both licenses. You keep the copyright in your own work. Sign off your commits with
+`git commit -s`.
