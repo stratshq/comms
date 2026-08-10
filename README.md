@@ -164,6 +164,23 @@ S3_REGION=auto
 
 (Exact variable names depend on the bucket plugin — open the bucket's **Variables** tab to confirm. Any S3-compatible store works too: Cloudflare R2, Backblaze B2, AWS S3.)
 
+### Optional: the marketing site
+
+`apps/www` is a separate site and is not part of the four services above. Nothing in the
+app needs it — skip this entirely if you're just self-hosting.
+
+To deploy it, add a fifth service from the same repo and point it at its own config file:
+
+| Setting | Value |
+| --- | --- |
+| Config file path | `apps/www/railway.json` |
+| Build variable | `NEXT_PUBLIC_SITE_URL=https://your-domain` |
+
+It builds from `apps/www/Dockerfile`, not the root one, so a copy change ships without
+rebuilding the inbox. It needs no database, no Redis, and none of the app's variables.
+`NEXT_PUBLIC_SITE_URL` is inlined at build time (it's what canonical and Open Graph tags
+resolve against), so changing it requires a redeploy, not just a restart.
+
 ### Troubleshooting
 
 - **Web crashes on boot with a DB/Redis error** → the variable references didn't resolve. Confirm `Postgres` and `Redis` are the exact service names, and that the three variables are set on the service.
