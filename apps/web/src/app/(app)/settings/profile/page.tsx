@@ -59,7 +59,7 @@ export default async function ProfileSettingsPage() {
               </p>
             </div>
             <Badge variant="secondary" className="capitalize">
-              {me.role}
+              {me.roleName}
             </Badge>
           </div>
         </CardContent>

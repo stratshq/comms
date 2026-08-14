@@ -56,11 +56,11 @@ What makes Comms enterprise rather than a personal bridge.
 
 - ✅ Real-time presence ("Sarah is viewing / typing…") + collision warnings
 - ✅ @mentions in internal notes with notifications (+ notification bell)
-- ✅ Assignment rules engine (round-robin + least-busy auto-assignment), scoped
-  to the routed team when a conversation has one
-- ✅ **Teams** — clients routed to a group, not just a person. Assign a contact
-  to a team once and every thread they start inherits it; per-team sidebar
-  rows, filters and round-robin
+- ✅ Assignment rules engine (round-robin + least-busy auto-assignment)
+- ✅ **Roles & permissions** — replaced Teams. Customizable roles with
+  per-permission grants (users, roles, workspace, inboxes, automations,
+  shared folders, system admin); built-in Owner/Admin/Agent, custom roles,
+  owner-safety invariants. Routing-by-team was removed in its favour
 - ✅ Shared drafts — write a reply, share it for review, a teammate approves &
   sends it (with "drafted by" attribution)
 - ⬜ Skills-based / business-hours routing; escalation / handoff with context
@@ -80,12 +80,17 @@ What makes Comms enterprise rather than a personal bridge.
 - ✅ Split inbox by correspondent — People / Unknown / Automated / Verification
   codes, classified from traffic at ingest, with a copy-the-code chip on OTP rows.
   Shipped ON by default (seeded shared folders, toggleable in Settings → Workspace)
-- ✅ **Admin panel** (Settings → Other) — version + update check, administrators
-  and recent users, AI provider management, runtime-tunable config (undo window,
-  send caps — no redeploy), and a Health tab: Postgres/Redis latency, queue
-  depths, worker heartbeat, bridge status
-- ✅ Automations can route to a team, mute a thread, and condition on the
-  correspondent kind
+- ✅ **Admin panel** (Settings → Other) — six tabs, linkable by URL:
+  - **General** — about/version + update check, an administrator access matrix
+    (super · admin panel · view-as), and read-only **view as a user**
+  - **Apps** — catalogue placeholder
+  - **AI** — multi-provider keys and models; usage reporting flagged enterprise
+  - **Config** — runtime-editable email/SMTP (no redeploy) with a real test
+    send, send caps and the undo window, plus read-only deployment config
+  - **Health** — operational/degraded/outage rollup, Postgres/Redis/worker/web,
+    queue depths, bridge status, and migration state (schema drift detection)
+  - **Enterprise** — licence key storage and feature gating
+- ✅ Automations can mute a thread and condition on the correspondent kind
 - ⬜ Merge/split/link conversations; cross-handle entity resolution
 - ⬜ Full business-hours-aware SLA windows
 
@@ -114,7 +119,8 @@ What makes Comms enterprise rather than a personal bridge.
 
 ## Wave 6 — Trust, security, compliance (enterprise)
 
-- ⬜ SSO/SAML/SCIM, granular RBAC, approval workflows
+- ✅ Granular RBAC (customizable roles + permission catalog)
+- ⬜ SSO/SAML/SCIM, approval workflows
 - ⬜ PII redaction, data-retention policies, GDPR delete
 - ⬜ On-prem / air-gapped story; per-agent permissions
 

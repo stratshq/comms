@@ -11,7 +11,7 @@ import {
   type TranscriptMessage,
 } from '@comms/ai';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { conversationName } from '@/lib/naming';
 
 export type AiResult = { ok: true; text: string } | { ok: false; error: string };
@@ -44,7 +44,7 @@ async function loadTranscript(
 }
 
 export async function summarizeConversationAction(conversationId: string): Promise<AiResult> {
-  await requireUser();
+  await requireWriter();
   if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
   const data = await loadTranscript(conversationId);
   if (!data) return { ok: false, error: 'Conversation not found.' };
@@ -61,7 +61,7 @@ export async function summarizeConversationAction(conversationId: string): Promi
 }
 
 export async function suggestReplyAction(conversationId: string): Promise<AiResult> {
-  await requireUser();
+  await requireWriter();
   if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
   const data = await loadTranscript(conversationId);
   if (!data) return { ok: false, error: 'Conversation not found.' };

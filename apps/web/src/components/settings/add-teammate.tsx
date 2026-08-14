@@ -25,15 +25,16 @@ import {
 } from '@/components/ui/select';
 import { createTeammate } from '@/server/actions/admin';
 
-export function AddTeammate() {
+export function AddTeammate({ roles }: { roles: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
+  const defaultRoleId = roles.find((r) => r.name === 'Agent')?.id ?? roles[0]?.id ?? '';
   const [form, setForm] = useState({
     name: '',
     email: '',
     password: '',
-    role: 'agent' as 'admin' | 'agent',
+    roleId: defaultRoleId,
   });
 
   return (
@@ -56,7 +57,7 @@ export function AddTeammate() {
               }
               toast.success('Teammate added');
               setOpen(false);
-              setForm({ name: '', email: '', password: '', role: 'agent' });
+              setForm({ name: '', email: '', password: '', roleId: defaultRoleId });
               router.refresh();
             });
           }}
@@ -100,15 +101,18 @@ export function AddTeammate() {
             <div className="space-y-2">
               <Label>Role</Label>
               <Select
-                value={form.role}
-                onValueChange={(v) => setForm((f) => ({ ...f, role: v as 'admin' | 'agent' }))}
+                value={form.roleId}
+                onValueChange={(v) => setForm((f) => ({ ...f, roleId: v }))}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="agent">Agent</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
+                  {roles.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

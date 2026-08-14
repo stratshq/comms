@@ -12,7 +12,7 @@ import {
   logger,
 } from '@comms/core';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getConnectionForInbox } from '@/server/queries';
 
 const log = logger.child({ action: 'imessage' });
@@ -53,7 +53,7 @@ export async function sendReaction(input: {
   messageId: string;
   reaction: BBReaction;
 }): Promise<ImessageResult> {
-  await requireUser();
+  await requireWriter();
   const ctx = await clientFor(input.conversationId);
   if ('error' in ctx) return { ok: false, error: ctx.error };
 
@@ -108,7 +108,7 @@ export async function sendTypingIndicator(input: {
   conversationId: string;
   isTyping: boolean;
 }): Promise<ImessageResult> {
-  await requireUser();
+  await requireWriter();
   const ctx = await clientFor(input.conversationId);
   if ('error' in ctx) return { ok: false, error: ctx.error };
   if (!ctx.connection.capabilities?.privateApi) return { ok: true }; // silently unsupported
@@ -129,7 +129,7 @@ export async function sendTypingIndicator(input: {
 
 /** Mark the thread read on the Mac, so the customer sees a read receipt. */
 export async function sendReadReceipt(conversationId: string): Promise<ImessageResult> {
-  await requireUser();
+  await requireWriter();
   const ctx = await clientFor(conversationId);
   if ('error' in ctx) return { ok: false, error: ctx.error };
   try {

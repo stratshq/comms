@@ -7,7 +7,6 @@ import {
   listTags,
   listMacros,
   listInboxes,
-  listAllTeams,
   getConnectionForInbox,
   getPersonContext,
   getThreadMedia,
@@ -24,7 +23,7 @@ import { DetailsPane } from '@/components/inbox/details-pane';
 import { InstantIntro } from '@/components/inbox/instant-intro';
 import { NudgeBanner, type NudgeData } from '@/components/inbox/nudge-banner';
 import { DetailsPaneShell } from '@/components/app/mobile-shell';
-import { isAdminRole, requireDbUser } from '@/lib/session';
+import { can, requireDbUser } from '@/lib/session';
 import { extractSelfIntroduction } from '@/lib/intro';
 import { DEFAULT_BUSINESS_HOURS, type BusinessHours } from '@/lib/availability';
 import { addressFromChatGuid, conversationName, formatAddress } from '@/lib/naming';
@@ -49,7 +48,6 @@ export default async function ConversationPage({
     tags,
     macros,
     inboxes,
-    teams,
     connection,
     draft,
     person,
@@ -65,7 +63,6 @@ export default async function ConversationPage({
     listTags(),
     listMacros(),
     listInboxes(),
-    listAllTeams(),
     getConnectionForInbox(conversation.inboxId),
     getMyDraft(conversationId),
     getPersonContext(conversationId, conversation.contactId),
@@ -146,7 +143,7 @@ export default async function ConversationPage({
             sharedAt: d.sharedAt.toISOString(),
             mine: d.mine,
           }))}
-          isAdmin={isAdminRole(user.role)}
+          isAdmin={can(user, 'workspace.manage')}
           businessHours={businessHours}
           signaturePreview={signature}
           viaInbox={
@@ -232,7 +229,6 @@ export default async function ConversationPage({
                   inboxId: conversation.inboxId,
                   inboxName: conversation.inbox?.name ?? 'Inbox',
                   tagIds: conversation.tags?.map((t) => t.tag.id) ?? [],
-                  assignedTeamId: conversation.assignedTeamId,
                   isGroup: conversation.isGroup,
                 }}
                 participants={participants}
@@ -246,7 +242,8 @@ export default async function ConversationPage({
                       }
                     : null
                 }
-                isAdmin={isAdminRole(user.role)}
+                canManageTags={can(user, 'workspace.manage')}
+                canRenameInbox={can(user, 'inboxes.manage')}
                 person={{
                   name: contactName,
                   avatarUrl: conversation.contact?.avatarUrl ?? null,
@@ -260,11 +257,8 @@ export default async function ConversationPage({
                   photoCount: person.photoCount,
                   isGroup: conversation.isGroup,
                   contactId: conversation.contactId,
-                  ownerTeamId: conversation.contact?.ownerTeamId ?? null,
-                  teams: teams.map((t) => ({ id: t.id, name: t.name, color: t.color })),
                 }}
                 agents={agents.map((a) => ({ id: a.id, name: a.name, email: a.email }))}
-                teams={teams.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
                 allTags={tags.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
                 ai={ai ? { summary: ai.summary, topic: ai.topic, sentiment: ai.sentiment } : null}
                 sla={{

@@ -10,7 +10,6 @@ import {
   notifications,
   inboxes,
   contacts,
-  teams,
   resolvePreferences,
   getRuntimeOverrides,
 } from '@comms/db';
@@ -23,7 +22,7 @@ import {
 } from '@comms/core';
 import { desc } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getConnectionForInbox } from '@/server/queries';
 import { appendSignature, resolveSignature } from '@/server/signature';
 
@@ -84,7 +83,7 @@ export async function sendMessage(input: {
    */
   draftedByUserId?: string;
 }): Promise<SendResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   let body = input.body.trim();
   if (!body) return { ok: false, error: 'Message is empty.' };
 
@@ -218,7 +217,7 @@ export async function cancelScheduled(messageId: string): Promise<ActionResult> 
  * if the worker already picked the job up.
  */
 export async function undoSend(messageId: string): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const msg = await db.query.messages.findFirst({ where: eq(messages.id, messageId) });
   if (!msg) return { ok: false, error: 'Message not found.' };
@@ -282,10 +281,9 @@ export async function updateConversation(input: {
   status?: 'open' | 'pending' | 'snoozed' | 'closed';
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   assigneeId?: string | null;
-  assignedTeamId?: string | null;
   snoozedUntil?: string | null;
 }): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const conv = await db.query.conversations.findFirst({ where: eq(conversations.id, input.id) });
   if (!conv) return { ok: false, error: 'Conversation not found.' };
 
@@ -306,16 +304,6 @@ export async function updateConversation(input: {
   if (input.assigneeId !== undefined && input.assigneeId !== conv.assigneeId) {
     patch.assigneeId = input.assigneeId;
     events.push(input.assigneeId ? `assigned the ticket` : `unassigned the ticket`);
-  }
-  if (input.assignedTeamId !== undefined && input.assignedTeamId !== conv.assignedTeamId) {
-    patch.assignedTeamId = input.assignedTeamId;
-    const team = input.assignedTeamId
-      ? await db.query.teams.findFirst({
-          where: eq(teams.id, input.assignedTeamId),
-          columns: { name: true },
-        })
-      : null;
-    events.push(team ? `routed this to ${team.name}` : `removed the team`);
   }
   if (input.snoozedUntil !== undefined) {
     patch.snoozedUntil = input.snoozedUntil ? new Date(input.snoozedUntil) : null;
@@ -369,7 +357,7 @@ export async function updateConversation(input: {
 }
 
 export async function toggleTag(conversationId: string, tagId: string): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   const existing = await db.query.conversationTags.findFirst({
     where: and(
       eq(conversationTags.conversationId, conversationId),
@@ -397,7 +385,7 @@ export async function bulkUpdateConversations(
   ids: string[],
   patch: { status?: 'open' | 'pending' | 'closed'; assigneeId?: string | null },
 ): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   if (ids.length === 0) return { ok: true };
 
   const set: Partial<typeof conversations.$inferInsert> = {};
@@ -423,7 +411,7 @@ export async function setFollowUp(
   conversationId: string,
   at: string | null,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   await db
     .update(conversations)
     .set({
@@ -438,7 +426,7 @@ export async function setFollowUp(
 
 /** Mark a conversation read (clears the unread badge in Comms). */
 export async function markRead(conversationId: string): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   await db
     .update(conversations)
     .set({ unreadCount: 0 })
@@ -452,7 +440,7 @@ export async function markRead(conversationId: string): Promise<ActionResult> {
  * making noise. Permanent until unmuted, which is the difference from snooze.
  */
 export async function setMuted(conversationId: string, muted: boolean): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
     columns: { id: true, inboxId: true },
@@ -480,7 +468,7 @@ export async function setMuted(conversationId: string, muted: boolean): Promise<
  * same message never nudges twice, but a NEW promise in a later reply can.
  */
 export async function dismissNudge(conversationId: string): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
     columns: { id: true, inboxId: true, metadata: true },

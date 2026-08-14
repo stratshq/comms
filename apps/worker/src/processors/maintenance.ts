@@ -15,7 +15,7 @@ import {
 } from '@comms/core';
 import { repairBlankNames, syncContacts } from '../lib/contacts.js';
 import { backfillParticipants, repairContactlessConversations } from '../lib/participants.js';
-import { getDb, eq, and, asc, desc, lte, ne, inArray, isNotNull, sql } from '@comms/db';
+import { getDb, eq, and, asc, desc, lte, ne, inArray, isNotNull, sql, roleGrants } from '@comms/db';
 import {
   appSettings,
   channelConnections,
@@ -85,10 +85,14 @@ async function seedDefaultFolders() {
 async function notifyAdminsOfTransition(connectionId: string, inboxId: string, body: string) {
   const db = getDb();
   const inbox = await db.query.inboxes.findFirst({ where: eq(inboxes.id, inboxId) });
-  const admins = await db.query.users.findMany({
-    where: and(eq(users.status, 'active'), inArray(users.role, ['owner', 'admin'])),
+  // "Admin" now means "role grants system administration" — channel health is
+  // an operational concern, so it goes to whoever can act on it.
+  const active = await db.query.users.findMany({
+    where: eq(users.status, 'active'),
     columns: { id: true },
+    with: { role: { columns: { permissions: true } } },
   });
+  const admins = active.filter((u) => roleGrants(u.role?.permissions, 'system.admin'));
   for (const a of admins) {
     await db.insert(notifications).values({
       userId: a.id,

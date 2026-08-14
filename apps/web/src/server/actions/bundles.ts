@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { eq, inArray } from '@comms/db';
 import { bundles, conversations } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getSetting, setSetting } from '@/server/settings';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -28,7 +28,7 @@ export type DissolveResult =
  * can offer a real Undo.
  */
 export async function dissolveBundle(bundleId: string): Promise<DissolveResult> {
-  await requireUser();
+  await requireWriter();
   const bundle = await db.query.bundles.findFirst({ where: eq(bundles.id, bundleId) });
   if (!bundle) return { ok: false, error: 'Bundle not found.' };
 
@@ -53,7 +53,7 @@ export async function restoreBundle(
   name: string,
   conversationIds: string[],
 ): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   const [bundle] = await db
     .insert(bundles)
     .values({ name })
@@ -80,7 +80,7 @@ export async function restoreBundle(
 
 /** Take one conversation out of its bundle (it won't be re-added this sweep cycle). */
 export async function removeFromBundle(conversationId: string): Promise<ActionResult> {
-  await requireUser();
+  await requireWriter();
   await db
     .update(conversations)
     .set({ bundleId: null })

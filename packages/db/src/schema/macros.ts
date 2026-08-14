@@ -7,7 +7,6 @@ export interface ConversationActions {
   setStatus?: 'open' | 'pending' | 'snoozed' | 'closed';
   setPriority?: 'low' | 'normal' | 'high' | 'urgent';
   assignToUserId?: string | null;
-  assignToTeamId?: string | null;
   addTagIds?: string[];
 }
 

@@ -14,7 +14,6 @@ import { channelType, conversationKind, conversationStatus, priority } from './e
 import { inboxes } from './inboxes.js';
 import { contacts, contactIdentities } from './contacts.js';
 import { users } from './auth.js';
-import { teams } from './teams.js';
 
 /**
  * An AI-maintained grouping of similar active conversations ("Order updates",
@@ -52,7 +51,6 @@ export const conversations = pgTable(
     status: conversationStatus('status').notNull().default('open'),
     priority: priority('priority').notNull().default('normal'),
     assigneeId: text('assignee_id').references(() => users.id, { onDelete: 'set null' }),
-    assignedTeamId: text('assigned_team_id').references(() => teams.id, { onDelete: 'set null' }),
     snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
     /**
      * "Bump this back to me if the customer hasn't replied by then." Unlike a
@@ -101,8 +99,7 @@ export const conversations = pgTable(
     index('conversations_status_idx').on(c.status),
     index('conversations_assignee_idx').on(c.assigneeId),
     index('conversations_last_message_idx').on(c.lastMessageAt),
-    // Both are folder axes, queried on every list render and every count.
-    index('conversations_team_idx').on(c.assignedTeamId),
+    // A folder axis, queried on every list render and every count.
     index('conversations_kind_idx').on(c.kind),
   ],
 );

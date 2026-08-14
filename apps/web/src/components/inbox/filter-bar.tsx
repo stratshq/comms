@@ -58,7 +58,6 @@ export function useInboxFilters() {
     () => ({
       status: searchParams.get('status') ?? 'active',
       assignee: searchParams.get('assignee') ?? undefined,
-      teamId: searchParams.get('team') ?? undefined,
       kind: searchParams.get('kind') ?? undefined,
       bodyContains: searchParams.get('words')?.split(',').filter(Boolean) ?? [],
       inboxId: searchParams.get('inbox') ?? undefined,
@@ -100,7 +99,6 @@ export function useInboxFilters() {
   const activeCount =
     (filters.status !== 'active' ? 1 : 0) +
     (filters.assignee ? 1 : 0) +
-    (filters.teamId ? 1 : 0) +
     (filters.kind ? 1 : 0) +
     filters.bodyContains.length +
     (filters.inboxId ? 1 : 0) +
@@ -142,12 +140,10 @@ export function FilterBar({
   allTags,
   agents,
   inboxes,
-  teams = [],
 }: {
   allTags: { id: string; name: string; color: string }[];
   agents: { id: string; name: string | null; email: string }[];
   inboxes: { id: string; name: string }[];
-  teams?: { id: string; name: string; color: string }[];
 }) {
   const { filters, setParam, toggleInList, activeCount, clearAll } = useInboxFilters();
   const [saveOpen, setSaveOpen] = useState(false);
@@ -159,14 +155,12 @@ export function FilterBar({
 
   const tagById = useMemo(() => new Map(allTags.map((t) => [t.id, t])), [allTags]);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
 
   /** The current filter set, in the shape a folder stores. */
   const asViewFilters = useCallback(
     () => ({
       status: filters.status as never,
       assignee: filters.assignee,
-      teamId: filters.teamId,
       kind: filters.kind as never,
       bodyContains: filters.bodyContains.length ? filters.bodyContains : undefined,
       inboxId: filters.inboxId,
@@ -187,7 +181,7 @@ export function FilterBar({
         name: viewName,
         display,
         // asViewFilters carries everything main's inline object did, plus the
-        // team / kind / bodyContains axes.
+        // kind / bodyContains axes.
         filters: asViewFilters(),
       });
       if (res.ok) {
@@ -294,40 +288,6 @@ export function FilterBar({
             {filters.readNoReply && <Check className="h-3.5 w-3.5" />}
           </DropdownMenuItem>
 
-          {teams.length > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wide text-muted-foreground">
-                Team
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => setParam('team', filters.teamId === 'mine' ? null : 'mine')}
-              >
-                <span className="flex-1">My teams</span>
-                {filters.teamId === 'mine' && <Check className="h-3.5 w-3.5" />}
-              </DropdownMenuItem>
-              {teams.map((t) => (
-                <DropdownMenuItem
-                  key={t.id}
-                  onClick={() => setParam('team', filters.teamId === t.id ? null : t.id)}
-                >
-                  <span
-                    className="mr-2 h-2 w-2 rounded-full"
-                    style={{ backgroundColor: t.color }}
-                  />
-                  <span className="flex-1 truncate">{t.name}</span>
-                  {filters.teamId === t.id && <Check className="h-3.5 w-3.5" />}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuItem
-                onClick={() => setParam('team', filters.teamId === 'none' ? null : 'none')}
-              >
-                <span className="flex-1 text-muted-foreground">No team</span>
-                {filters.teamId === 'none' && <Check className="h-3.5 w-3.5" />}
-              </DropdownMenuItem>
-            </>
-          )}
-
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-[10.5px] uppercase tracking-wide text-muted-foreground">
             Who it&apos;s with
@@ -402,19 +362,6 @@ export function FilterBar({
                   : (agentById.get(filters.assignee)?.name ?? 'Assignee')
             }
             onClear={() => setParam('assignee', null)}
-          />
-        )}
-        {filters.teamId && (
-          <FilterChip
-            key="team"
-            label={
-              filters.teamId === 'mine'
-                ? 'My teams'
-                : filters.teamId === 'none'
-                  ? 'No team'
-                  : (teamById.get(filters.teamId)?.name ?? 'Team')
-            }
-            onClear={() => setParam('team', null)}
           />
         )}
         {filters.kind && (

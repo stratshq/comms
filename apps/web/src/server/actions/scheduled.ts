@@ -5,7 +5,7 @@ import { and, asc, eq, isNotNull, sql } from '@comms/db';
 import { conversations, messages } from '@comms/db';
 import { enqueueOutbound, outboundQueue } from '@comms/core';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getConnectionForInbox } from '@/server/queries';
 import { conversationName } from '@/lib/naming';
 
@@ -125,7 +125,7 @@ export async function rescheduleMessage(
   messageId: string,
   atIso: string,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const at = new Date(atIso);
   if (Number.isNaN(at.getTime())) return { ok: false, error: 'That is not a valid time.' };
   if (at.getTime() <= Date.now()) return { ok: false, error: 'Pick a time in the future.' };
@@ -170,7 +170,7 @@ export async function rescheduleConversation(
   kind: 'reminder' | 'snooze',
   atIso: string | null,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const at = atIso ? new Date(atIso) : null;
   if (at && Number.isNaN(at.getTime())) return { ok: false, error: 'That is not a valid time.' };
   if (at && at.getTime() <= Date.now()) return { ok: false, error: 'Pick a time in the future.' };

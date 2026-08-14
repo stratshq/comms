@@ -1,3 +1,4 @@
+import { requirePermissionPage } from '@/lib/session';
 import { getOrgSettings, getSetting } from '@/server/settings';
 import { signaturesEnabled } from '@/server/signature';
 import { getSplitInboxState } from '@/server/actions/views';
@@ -10,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 export const dynamic = 'force-dynamic';
 
 export default async function WorkspaceSettingsPage() {
+  await requirePermissionPage('workspace.manage');
   const org = await getOrgSettings();
   const sla =
     (await getSetting<{ firstResponseMinutes?: number; nextResponseMinutes?: number }>('sla')) ??

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, sql } from '@comms/db';
 import { inboxes, conversations, messages, channelConnections } from '@comms/db';
 import { db } from '@/server/db';
-import { requireAdmin } from '@/lib/session';
+import { requirePermission, requirePermissionForRead } from '@/lib/session';
 
 export type InboxResult = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -18,7 +18,7 @@ export interface InboxSummary {
 
 /** Counts used to warn before anything destructive. */
 export async function getInboxSummary(inboxId: string): Promise<InboxSummary | null> {
-  await requireAdmin();
+  await requirePermissionForRead('inboxes.manage');
   const inbox = await db.query.inboxes.findFirst({ where: eq(inboxes.id, inboxId) });
   if (!inbox) return null;
 
@@ -58,7 +58,7 @@ export async function deleteInbox(
   inboxId: string,
   options: { confirmDeleteMessages?: boolean } = {},
 ): Promise<InboxResult> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
 
   const summary = await getInboxSummary(inboxId);
   if (!summary) return { ok: false, error: 'Inbox not found.' };
@@ -118,7 +118,7 @@ export async function mergeInboxes(input: {
   sourceInboxId: string;
   targetInboxId: string;
 }): Promise<InboxResult> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   if (input.sourceInboxId === input.targetInboxId) {
     return { ok: false, error: 'Pick two different inboxes.' };
   }
@@ -176,7 +176,7 @@ export async function mergeInboxes(input: {
 
 /** Rename an inbox — handy once you have more than one number. */
 export async function renameInbox(inboxId: string, name: string): Promise<InboxResult> {
-  await requireAdmin();
+  await requirePermission('inboxes.manage');
   const trimmed = name.trim();
   if (!trimmed) return { ok: false, error: 'Name is required.' };
   await db.update(inboxes).set({ name: trimmed }).where(eq(inboxes.id, inboxId));

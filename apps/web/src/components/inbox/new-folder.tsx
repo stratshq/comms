@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { KeyRound, Bot, UserRound, Users, Folder } from 'lucide-react';
+import { KeyRound, Bot, UserRound, Folder } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -33,7 +33,6 @@ import { cn } from '@/lib/utils';
 type SourceKind =
   | { type: 'kind'; value: 'unknown' | 'automated' | 'otp' | 'person' }
   | { type: 'tag'; value: string }
-  | { type: 'team'; value: string }
   | { type: 'inbox'; value: string }
   | { type: 'words'; value: string }
   | null;
@@ -71,23 +70,13 @@ const PRESETS: {
     display: 'section',
     hint: 'Nobody you know yet',
   },
-  {
-    key: 'myteams',
-    name: 'My teams',
-    icon: Users,
-    source: { type: 'team', value: 'mine' },
-    display: 'sidebar',
-    hint: 'Routed to a team you are on',
-  },
 ];
 
 export function NewFolderDialog({
   tags,
-  teams,
   inboxes,
 }: {
   tags: { id: string; name: string; color: string }[];
-  teams: { id: string; name: string; color: string }[];
   inboxes: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -115,8 +104,6 @@ export function NewFolderDialog({
         return { kind: s.value };
       case 'tag':
         return { tagIds: [s.value] };
-      case 'team':
-        return { teamId: s.value };
       case 'inbox':
         return { inboxId: s.value };
       case 'words':
@@ -223,16 +210,6 @@ export function NewFolderDialog({
           <div className="space-y-1.5">
             <Label>What goes in it</Label>
             <div className="flex flex-wrap gap-1.5">
-              {teams.map((t) => (
-                <Chip
-                  key={`team-${t.id}`}
-                  active={source?.type === 'team' && source.value === t.id}
-                  color={t.color}
-                  onClick={() => setSource({ type: 'team', value: t.id })}
-                >
-                  {t.name}
-                </Chip>
-              ))}
               {tags.map((t) => (
                 <Chip
                   key={`tag-${t.id}`}

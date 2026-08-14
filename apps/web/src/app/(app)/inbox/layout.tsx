@@ -4,11 +4,9 @@ import {
   listInboxes,
   listTags,
   listAgents,
-  listAllTeams,
   listSavedViews,
 } from '@/server/queries';
 import { myDraftConversationIds } from '@/server/actions/drafts';
-import { myTeamIds } from '@/server/actions/teams';
 import { ConversationListPane, type SectionFilters } from '@/components/inbox/conversation-list';
 import { TagQuickPicker } from '@/components/inbox/tag-quick-picker';
 import { NewFolderDialog } from '@/components/inbox/new-folder';
@@ -17,8 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function InboxLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const teamIds = await myTeamIds();
-  const [conversations, inboxRows, tagRows, agentRows, teamRows, viewRows, draftIds] =
+  const [conversations, inboxRows, tagRows, agentRows, viewRows, draftIds] =
     await Promise.all([
       // Load the working set once; the pane filters and sorts it client-side so
       // every filter change is instant.
@@ -26,12 +23,9 @@ export default async function InboxLayout({ children }: { children: React.ReactN
       listInboxes(),
       listTags(),
       listAgents(),
-      listAllTeams(),
-      listSavedViews(user.id, teamIds),
+      listSavedViews(user.id),
       myDraftConversationIds(user.id),
     ]);
-
-  const teams = teamRows.map((t) => ({ id: t.id, name: t.name, color: t.color }));
 
   return (
     <div className="flex h-full min-h-0 flex-1">
@@ -43,8 +37,6 @@ export default async function InboxLayout({ children }: { children: React.ReactN
         allTags={tagRows.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
         agents={agentRows.map((a) => ({ id: a.id, name: a.name, email: a.email }))}
         inboxes={inboxRows.map((i) => ({ id: i.id, name: i.name }))}
-        teams={teams}
-        myTeamIds={teamIds}
         // Folders set to render inside the list rather than in the sidebar.
         folders={viewRows
           .filter((v) => v.display === 'section')
@@ -61,7 +53,6 @@ export default async function InboxLayout({ children }: { children: React.ReactN
       />
       <NewFolderDialog
         tags={tagRows.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
-        teams={teams}
         inboxes={inboxRows.map((i) => ({ id: i.id, name: i.name }))}
       />
     </div>

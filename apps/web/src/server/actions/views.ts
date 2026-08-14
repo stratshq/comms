@@ -11,7 +11,7 @@ import {
   type ViewFilters,
 } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser, requireAdmin } from '@/lib/session';
+import { requireUser, requirePermission, requireWriter } from '@/lib/session';
 
 export type ViewResult = { ok: true } | { ok: false; error: string };
 
@@ -25,7 +25,7 @@ export async function createSavedView(input: {
   /** 'sidebar' is a nav row; 'section' is a header inside the inbox list. */
   display?: 'sidebar' | 'section';
 }): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const name = input.name.trim();
   if (!name) return { ok: false, error: 'Give the folder a name.' };
 
@@ -56,10 +56,10 @@ export async function updateSavedView(input: {
   isShared?: boolean;
   sortOrder?: number;
 }): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, input.id) });
   if (!view) return { ok: false, error: 'Folder not found.' };
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
 
   const patch: Partial<typeof savedViews.$inferInsert> = {};
   if (input.name !== undefined) {
@@ -108,7 +108,7 @@ export async function getSplitInboxState(): Promise<Record<SplitKind, boolean>> 
  * can never disagree with what the inbox actually shows.
  */
 export async function setSplitInboxFolder(kind: string, enabled: boolean): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   if (!(SPLIT_KINDS as readonly string[]).includes(kind)) {
     return { ok: false, error: 'Unknown split-inbox section.' };
   }
@@ -139,11 +139,11 @@ export async function setSplitInboxFolder(kind: string, enabled: boolean): Promi
 }
 
 export async function deleteSavedView(id: string): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
   // Owners can delete their own; shared views need admin.
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
   await db.delete(savedViews).where(eq(savedViews.id, id));
   revalidatePath('/inbox');
   revalidatePath('/settings/views');
@@ -151,10 +151,10 @@ export async function deleteSavedView(id: string): Promise<ViewResult> {
 }
 
 export async function renameSavedView(id: string, name: string): Promise<ViewResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const view = await db.query.savedViews.findFirst({ where: eq(savedViews.id, id) });
   if (!view) return { ok: false, error: 'View not found.' };
-  if (view.ownerUserId !== user.id) await requireAdmin();
+  if (view.ownerUserId !== user.id) await requirePermission('folders.manage_shared');
   await db.update(savedViews).set({ name: name.trim() }).where(eq(savedViews.id, id));
   revalidatePath('/inbox');
   return { ok: true };
@@ -162,7 +162,7 @@ export async function renameSavedView(id: string, name: string): Promise<ViewRes
 
 /**
  * Create a tag and apply it to a conversation in one move — the panel's
- * "No tags yet" dead-end, fixed. Admin because the tag list is deliberately
+ * "No tags yet" dead-end, fixed. Permission-gated because the tag list is
  * curated (that's the whole point of the AI suggestion queue); reuses an
  * existing tag of the same name instead of erroring.
  */
@@ -171,7 +171,8 @@ export async function createAndApplyTag(input: {
   name: string;
   color?: string;
 }): Promise<{ ok: true; tagId: string } | { ok: false; error: string }> {
-  await requireAdmin();
+  // Tags are workspace vocabulary — same grant as the tags settings page.
+  await requirePermission('workspace.manage');
   const name = input.name.trim();
   if (!name) return { ok: false, error: 'Tag name is required.' };
   if (name.length > 40) return { ok: false, error: 'Tag name must be 40 characters or fewer.' };
@@ -202,7 +203,7 @@ export async function createAndApplyTag(input: {
  * source. Fixes the inevitable "billing" / "Billing" duplication.
  */
 export async function mergeTags(sourceId: string, targetId: string): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   if (sourceId === targetId) return { ok: false, error: 'Pick two different tags.' };
 
   const rows = await db
@@ -258,7 +259,7 @@ export async function approveTagSuggestion(
   id: string,
   color = '#71717a',
 ): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   const suggestion = await db.query.tagSuggestions.findFirst({
     where: eq(tagSuggestions.id, id),
   });
@@ -294,7 +295,7 @@ export async function approveTagSuggestion(
 }
 
 export async function dismissTagSuggestion(id: string): Promise<ViewResult> {
-  await requireAdmin();
+  await requirePermission('folders.manage_shared');
   await db
     .update(tagSuggestions)
     .set({ dismissedAt: new Date() })

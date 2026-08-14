@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, primaryKey, integer, boolean, jsonb } from 'drizzle-orm/pg-core';
 import { genId, timestamps } from './_helpers.js';
-import { userRole, userStatus } from './enums.js';
+import { userStatus } from './enums.js';
+import { roles, AGENT_ROLE_ID } from './roles.js';
 
 /**
  * Per-user settings, owned by the user rather than by an admin. Everything is
@@ -59,7 +60,10 @@ export const users = pgTable('users', {
   emailVerified: timestamp('email_verified', { withTimezone: true, mode: 'date' }),
   image: text('image'),
   hashedPassword: text('hashed_password'),
-  role: userRole('role').notNull().default('agent'),
+  roleId: text('role_id')
+    .notNull()
+    .default(AGENT_ROLE_ID)
+    .references(() => roles.id),
   status: userStatus('status').notNull().default('active'),
   preferences: jsonb('preferences').$type<UserPreferences>().notNull().default({}),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
@@ -111,7 +115,7 @@ export const verificationTokens = pgTable(
 export const invites = pgTable('invites', {
   id: text('id').primaryKey().$defaultFn(genId('inv')),
   email: text('email').notNull(),
-  role: userRole('role').notNull().default('agent'),
+  roleId: text('role_id').notNull().default(AGENT_ROLE_ID),
   token: text('token').notNull().unique(),
   invitedByUserId: text('invited_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

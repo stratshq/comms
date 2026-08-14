@@ -5,7 +5,7 @@ import { eq, sql } from '@comms/db';
 import { macros, conversations, conversationTags, messages } from '@comms/db';
 import { renderTemplate, firstNameOf, type TemplateContext } from '@comms/core';
 import { db } from '@/server/db';
-import { requireUser } from '@/lib/session';
+import { requireUser, requireWriter } from '@/lib/session';
 import { getOrgSettings } from '@/server/settings';
 
 export type MacroApplyResult =
@@ -24,7 +24,7 @@ export async function applyMacro(input: {
   macroId: string;
   conversationId: string;
 }): Promise<MacroApplyResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const macro = await db.query.macros.findFirst({ where: eq(macros.id, input.macroId) });
   if (!macro) return { ok: false, error: 'Macro not found.' };
@@ -76,10 +76,6 @@ export async function applyMacro(input: {
   if (a.assignToUserId !== undefined && a.assignToUserId !== conv.assigneeId) {
     patch.assigneeId = a.assignToUserId;
     applied.push(a.assignToUserId ? 'assigned' : 'unassigned');
-  }
-  if (a.assignToTeamId !== undefined && a.assignToTeamId !== conv.assignedTeamId) {
-    patch.assignedTeamId = a.assignToTeamId;
-    applied.push(a.assignToTeamId ? 'routed to a team' : 'team cleared');
   }
   if (Object.keys(patch).length > 0) {
     await db.update(conversations).set(patch).where(eq(conversations.id, conv.id));

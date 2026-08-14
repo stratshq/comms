@@ -16,9 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here on purpose — action-setup v4 hard-errors when a version
+      # is given alongside `packageManager` in package.json, which is where the
+      # exact pnpm version already lives.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -30,6 +31,12 @@ jobs:
 
       - name: Build packages & apps
         run: pnpm build
+
+      # The marketing site is excluded from `pnpm build` because it never ships
+      # in the app image, so it needs its own step or it would only ever be
+      # typechecked — and a Next build catches App Router errors that tsc does not.
+      - name: Build marketing site
+        run: pnpm build:www
 
       - name: Typecheck
         run: pnpm typecheck

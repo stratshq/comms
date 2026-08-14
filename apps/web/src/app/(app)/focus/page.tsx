@@ -10,7 +10,7 @@ import {
 import { getSetting } from '@/server/settings';
 import { resolveSignature } from '@/server/signature';
 import { getMyDraft, listSharedDrafts } from '@/server/actions/drafts';
-import { isAdminRole, requireDbUser } from '@/lib/session';
+import { can, requireDbUser } from '@/lib/session';
 import { DEFAULT_BUSINESS_HOURS, type BusinessHours } from '@/lib/availability';
 import { conversationName } from '@/lib/naming';
 import { FocusShell } from '@/components/focus/focus-shell';
@@ -95,7 +95,7 @@ export default async function FocusPage({
         aiDraft: ai?.draft ?? null,
         initialDraft: draft,
         canReact: Boolean(connection?.capabilities?.privateApi),
-        isAdmin: isAdminRole(user.role),
+        isAdmin: can(user, 'workspace.manage'),
         sharedDrafts: sharedDrafts.map((d) => ({
           authorUserId: d.authorUserId,
           authorName: d.authorName,

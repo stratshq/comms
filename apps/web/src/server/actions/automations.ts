@@ -9,7 +9,7 @@ import {
   type AutomationActions,
 } from '@comms/db';
 import { db } from '@/server/db';
-import { requireAdmin } from '@/lib/session';
+import { requirePermission, requirePermissionForRead } from '@/lib/session';
 import { setSetting } from '@/server/settings';
 
 export type RuleResult = { ok: true } | { ok: false; error: string };
@@ -37,7 +37,7 @@ export async function createRule(input: {
   actions: RuleActions;
   stopProcessing?: boolean;
 }): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   if (!input.name.trim()) return { ok: false, error: 'Name is required.' };
 
   const [maxRow] = await db
@@ -69,21 +69,21 @@ export async function updateRule(
     sortOrder?: number;
   },
 ): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   await db.update(automationRules).set(patch).where(eq(automationRules.id, id));
   revalidatePath('/settings/automations');
   return { ok: true };
 }
 
 export async function toggleRule(id: string, enabled: boolean): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   await db.update(automationRules).set({ enabled }).where(eq(automationRules.id, id));
   revalidatePath('/settings/automations');
   return { ok: true };
 }
 
 export async function deleteRule(id: string): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   await db.delete(automationRules).where(eq(automationRules.id, id));
   revalidatePath('/settings/automations');
   return { ok: true };
@@ -91,7 +91,7 @@ export async function deleteRule(id: string): Promise<RuleResult> {
 
 /** Move a rule up or down in evaluation order. */
 export async function reorderRule(id: string, direction: 'up' | 'down'): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   const all = await db.query.automationRules.findMany({
     orderBy: [asc(automationRules.sortOrder)],
   });
@@ -166,7 +166,7 @@ export async function dryRunRules(input: {
   kind?: 'person' | 'unknown' | 'automated' | 'otp';
   atTime?: string;
 }): Promise<DryRunResult[]> {
-  await requireAdmin();
+  await requirePermissionForRead('automations.manage');
 
   const rules = await db.query.automationRules.findMany({
     where: and(eq(automationRules.enabled, true), eq(automationRules.trigger, input.trigger)),
@@ -263,7 +263,7 @@ export async function dryRunRules(input: {
 }
 
 export async function saveBusinessHours(input: BusinessHoursSetting): Promise<RuleResult> {
-  await requireAdmin();
+  await requirePermission('automations.manage');
   await setSetting('business_hours', input);
   revalidatePath('/settings/automations');
   return { ok: true };

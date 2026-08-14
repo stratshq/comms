@@ -1,3 +1,4 @@
+import { requirePermissionPage } from '@/lib/session';
 import { loadConfig } from '@comms/core';
 import { getRuntimeOverrides } from '@comms/db';
 import { SUGGESTED_MODELS } from '@comms/ai';
@@ -7,18 +8,23 @@ import {
   getVersionInfo,
   listAiProvidersSafe,
 } from '@/server/system';
+import { getEmailStatus } from '@/server/smtp';
+import { getLicense } from '@/server/license';
 import { AdminPanel } from '@/components/settings/admin-panel';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPanelPage() {
+  const me = await requirePermissionPage('system.admin');
   const cfg = loadConfig();
-  const [version, health, overview, ai, overrides] = await Promise.all([
+  const [version, health, overview, ai, overrides, email, license] = await Promise.all([
     getVersionInfo(),
     getSystemHealth(),
     getAdminOverview(),
     listAiProvidersSafe(),
     getRuntimeOverrides(),
+    getEmailStatus(),
+    getLicense(),
   ]);
 
   // What the deployment is, in one glance — values only, never secrets.
@@ -27,7 +33,6 @@ export default async function AdminPanelPage() {
     { label: 'Database', value: cfg.DATABASE_URL ? 'configured' : 'missing' },
     { label: 'Redis', value: cfg.REDIS_URL ? 'configured' : 'missing' },
     { label: 'Attachments (S3)', value: cfg.storageEnabled ? 'configured' : 'not configured' },
-    { label: 'Email (SMTP)', value: cfg.smtpEnabled ? 'configured' : 'not configured' },
     {
       label: 'Google sign-in',
       value: process.env.GOOGLE_CLIENT_ID ? 'configured' : 'not configured',
@@ -47,19 +52,27 @@ export default async function AdminPanelPage() {
       <div>
         <h2 className="text-lg font-semibold">Admin panel</h2>
         <p className="text-sm text-muted-foreground">
-          The machine room: version, providers, runtime settings and service health.
+          The machine room: what this instance is running, who administers it, and whether the
+          pieces are alive.
         </p>
       </div>
 
       <AdminPanel
         version={version}
-        health={health}
-        admins={overview.admins.map((a) => ({
-          id: a.id,
-          name: a.name,
-          email: a.email,
-          role: a.role,
-          image: a.image,
+        health={{
+          ...health,
+          worker: {
+            ...health.worker,
+            lastSeenAt: health.worker.lastSeenAt,
+          },
+        }}
+        administrators={overview.administrators.map((a) => ({
+          ...a,
+          lastSeenAt: a.lastSeenAt?.toISOString() ?? null,
+        }))}
+        allUsers={overview.allUsers.map((a) => ({
+          ...a,
+          lastSeenAt: a.lastSeenAt?.toISOString() ?? null,
         }))}
         recentUsers={overview.recent.map((u) => ({
           id: u.id,
@@ -69,6 +82,8 @@ export default async function AdminPanelPage() {
           status: u.status,
           lastSeenAt: u.lastSeenAt?.toISOString() ?? null,
         }))}
+        currentUserId={me.id}
+        canImpersonate={me.permissions.includes('*') || me.permissions.includes('system.impersonate')}
         providers={ai.providers}
         envAnthropicKey={ai.envAnthropicKey}
         envModel={ai.envModel}
@@ -81,6 +96,9 @@ export default async function AdminPanelPage() {
         }}
         readOnlyConfig={readOnlyConfig}
         suggestedModels={SUGGESTED_MODELS}
+        email={email}
+        license={license}
+        orgName={cfg.appUrl}
       />
     </div>
   );

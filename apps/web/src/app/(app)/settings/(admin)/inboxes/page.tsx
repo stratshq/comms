@@ -1,3 +1,4 @@
+import { requirePermissionPage } from '@/lib/session';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { listInboxes } from '@/server/queries';
@@ -11,6 +12,7 @@ import { InboxSettings } from '@/components/settings/inbox-settings';
 export const dynamic = 'force-dynamic';
 
 export default async function InboxesSettingsPage() {
+  await requirePermissionPage('inboxes.manage');
   const inboxes = await listInboxes();
 
   // Per-inbox history counts, so a delete can warn about exactly what it costs.

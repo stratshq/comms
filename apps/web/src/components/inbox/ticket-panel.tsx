@@ -106,14 +106,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function TicketPanel({
   conversation,
   agents,
-  teams = [],
   allTags,
   ai,
   sla,
   person,
   participants = [],
   contact,
-  isAdmin = false,
+  canManageTags = false,
+  canRenameInbox = false,
 }: {
   conversation: {
     id: string;
@@ -125,7 +125,6 @@ export function TicketPanel({
     inboxId: string;
     inboxName: string;
     tagIds: string[];
-    assignedTeamId: string | null;
     isGroup: boolean;
   };
   /** Who you are talking to — rendered above the workflow controls. */
@@ -145,9 +144,11 @@ export function TicketPanel({
     company: string | null;
     attributes: Record<string, string>;
   } | null;
-  isAdmin?: boolean;
+  /** workspace.manage — the create-tag affordance follows the settings page. */
+  canManageTags?: boolean;
+  /** inboxes.manage — renaming the number is an inbox-level act. */
+  canRenameInbox?: boolean;
   agents: { id: string; name: string | null; email: string }[];
-  teams?: { id: string; name: string; color: string }[];
   allTags: { id: string; name: string; color: string }[];
   ai?: { summary?: string; topic?: string; sentiment?: string } | null;
   sla?: {
@@ -167,8 +168,6 @@ export function TicketPanel({
   const [priority, setPriority] = useState(conversation.priority);
   const [assigneeId, setAssigneeId] = useState(conversation.assigneeId);
   const [tagIds, setTagIds] = useState<string[]>(conversation.tagIds);
-  const [teamId, setTeamId] = useState(conversation.assignedTeamId);
-  useEffect(() => setTeamId(conversation.assignedTeamId), [conversation.assignedTeamId]);
   useEffect(() => setStatus(conversation.status), [conversation.status]);
   useEffect(() => setPriority(conversation.priority), [conversation.priority]);
   useEffect(() => setAssigneeId(conversation.assigneeId), [conversation.assigneeId]);
@@ -320,43 +319,6 @@ export function TicketPanel({
             </Select>
           </Field>
 
-          {teams.length > 0 && (
-            <Field label="Team">
-              <Select
-                value={teamId ?? UNASSIGNED}
-                onValueChange={(v) => {
-                  const prev = teamId;
-                  const next = v === UNASSIGNED ? null : v;
-                  optimistic(
-                    () => setTeamId(next),
-                    () => setTeamId(prev),
-                    () =>
-                      updateConversation({ id: conversation.id, assignedTeamId: next }),
-                    {
-                      label: next
-                        ? `Routed to ${teams.find((t) => t.id === next)?.name ?? 'a team'}`
-                        : 'Team cleared',
-                      inverse: () =>
-                        updateConversation({ id: conversation.id, assignedTeamId: prev }),
-                    },
-                  );
-                }}
-              >
-                <SelectTrigger className="h-8 text-[12.5px]">
-                  <SelectValue placeholder="No team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNASSIGNED}>No team</SelectItem>
-                  {teams.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-
           <Field label="Status">
             <Select
               value={status}
@@ -434,7 +396,7 @@ export function TicketPanel({
       </CollapsibleSection>
 
       <Section label="Tags">
-        {allTags.length === 0 && !isAdmin ? (
+        {allTags.length === 0 && !canManageTags ? (
           <p className="text-[12px] text-muted-foreground">
             No tags yet — an admin can create them here or in Settings → Tags.
           </p>
@@ -470,7 +432,7 @@ export function TicketPanel({
               );
             })}
             {/* Create-and-apply, right where the need appears. */}
-            {isAdmin && (
+            {canManageTags && (
               <TagCreator
                 conversationId={conversation.id}
                 onCreated={(tagId) => {
@@ -539,7 +501,7 @@ export function TicketPanel({
         <ChannelName
           inboxId={conversation.inboxId}
           name={conversation.inboxName}
-          canRename={isAdmin}
+          canRename={canRenameInbox}
         />
       </Section>
     </div>

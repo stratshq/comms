@@ -14,8 +14,6 @@ export interface ViewFilters {
   status?: 'open' | 'pending' | 'snoozed' | 'closed' | 'drafts' | 'active' | 'all';
   /** A user id, or 'me' / 'unassigned'. */
   assignee?: string;
-  /** A team id, or 'mine' for every team the viewer belongs to. */
-  teamId?: string;
   inboxId?: string;
   tagIds?: string[];
   priorityIn?: Array<'low' | 'normal' | 'high' | 'urgent'>;
