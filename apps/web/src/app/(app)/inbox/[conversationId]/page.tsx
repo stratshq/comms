@@ -12,6 +12,7 @@ import {
   getPersonContext,
   getThreadMedia,
   getIntroContext,
+  getGroupParticipants,
 } from '@/server/queries';
 import { getSetting } from '@/server/settings';
 import { resolveSignature } from '@/server/signature';
@@ -57,6 +58,7 @@ export default async function ConversationPage({
     sharedDrafts,
     hoursSetting,
     signature,
+    participants,
   ] = await Promise.all([
     getMessages(conversationId),
     listAgents(),
@@ -72,6 +74,7 @@ export default async function ConversationPage({
     listSharedDrafts(conversationId),
     getSetting<Partial<BusinessHours>>('business_hours'),
     resolveSignature(user.id, conversation.inboxId),
+    conversation.isGroup ? getGroupParticipants(conversationId) : Promise.resolve([]),
   ]);
 
   // Tapbacks, typing indicators and edits all require the BlueBubbles Private
@@ -226,10 +229,24 @@ export default async function ConversationPage({
                       [formatAddress(addressFromChatGuid(conversation.providerChatGuid))].filter(
                         (v): v is string => Boolean(v),
                       ),
+                  inboxId: conversation.inboxId,
                   inboxName: conversation.inbox?.name ?? 'Inbox',
                   tagIds: conversation.tags?.map((t) => t.tag.id) ?? [],
                   assignedTeamId: conversation.assignedTeamId,
+                  isGroup: conversation.isGroup,
                 }}
+                participants={participants}
+                contact={
+                  conversation.contact
+                    ? {
+                        id: conversation.contact.id,
+                        notes: conversation.contact.notes,
+                        company: conversation.contact.company,
+                        attributes: conversation.contact.attributes ?? {},
+                      }
+                    : null
+                }
+                isAdmin={isAdminRole(user.role)}
                 person={{
                   name: contactName,
                   avatarUrl: conversation.contact?.avatarUrl ?? null,

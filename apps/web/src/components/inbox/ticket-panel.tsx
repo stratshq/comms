@@ -3,8 +3,19 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Sparkles, AlertTriangle, Clock, Star, ChevronRight } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Sparkles,
+  AlertTriangle,
+  Clock,
+  Star,
+  ChevronRight,
+  Check,
+  Pencil,
+  Plus,
+  UsersRound,
+  X,
+} from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Select,
   SelectContent,
@@ -13,8 +24,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { updateConversation, toggleTag } from '@/server/actions/inbox';
+import { createAndApplyTag } from '@/server/actions/views';
+import { renameInbox } from '@/server/actions/inboxes';
+import { setContactAttribute, updateContactDetails } from '@/server/actions/contacts';
 import { undoToast } from '@/lib/undo';
 import { relativeTime } from '@/lib/format';
+import { formatAddress } from '@/lib/naming';
 import { PersonCard, type PersonCardProps } from '@/components/inbox/person-card';
 import { cn, initials } from '@/lib/utils';
 
@@ -96,6 +111,9 @@ export function TicketPanel({
   ai,
   sla,
   person,
+  participants = [],
+  contact,
+  isAdmin = false,
 }: {
   conversation: {
     id: string;
@@ -104,12 +122,30 @@ export function TicketPanel({
     assigneeId: string | null;
     contactName: string;
     contactIdentities: string[];
+    inboxId: string;
     inboxName: string;
     tagIds: string[];
     assignedTeamId: string | null;
+    isGroup: boolean;
   };
   /** Who you are talking to — rendered above the workflow controls. */
   person?: PersonCardProps | null;
+  /** Everyone in a group thread — a group is its members, not one number. */
+  participants?: {
+    contactId: string | null;
+    name: string | null;
+    address: string;
+    rawAddress: string | null;
+    avatarUrl: string | null;
+  }[];
+  /** The linked contact's trackable facts (notes, company, custom fields). */
+  contact?: {
+    id: string;
+    notes: string | null;
+    company: string | null;
+    attributes: Record<string, string>;
+  } | null;
+  isAdmin?: boolean;
   agents: { id: string; name: string | null; email: string }[];
   teams?: { id: string; name: string; color: string }[];
   allTags: { id: string; name: string; color: string }[];
@@ -187,6 +223,40 @@ export function TicketPanel({
             </p>
           </div>
         </div>
+      )}
+
+      {/* A group IS its members. One phone number for a five-person thread
+          answered "who am I talking to" with a lie of omission. */}
+      {conversation.isGroup && participants.length > 0 && (
+        <Section label={`Members · ${participants.length}`} icon={UsersRound}>
+          <div className="space-y-1.5">
+            {participants.map((m) => {
+              const display = m.name || formatAddress(m.rawAddress ?? m.address) || m.address;
+              const sub = m.name ? (formatAddress(m.rawAddress ?? m.address) ?? m.address) : null;
+              return (
+                <div key={m.address} className="flex items-center gap-2.5">
+                  <Avatar className="h-7 w-7 ring-1 ring-border">
+                    {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt="" />}
+                    <AvatarFallback className="bg-secondary text-[10px] font-semibold text-muted-foreground">
+                      {initials(display)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12.5px] font-medium">{display}</p>
+                    {sub && (
+                      <p className="truncate font-mono text-[10.5px] text-muted-foreground">
+                        {sub}
+                      </p>
+                    )}
+                  </div>
+                  {!m.name && (
+                    <span className="type-caption shrink-0 text-muted-foreground/60">unknown</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
       )}
 
       {ai?.summary && (
@@ -364,8 +434,10 @@ export function TicketPanel({
       </CollapsibleSection>
 
       <Section label="Tags">
-        {allTags.length === 0 ? (
-          <p className="text-[12px] text-muted-foreground">No tags yet.</p>
+        {allTags.length === 0 && !isAdmin ? (
+          <p className="text-[12px] text-muted-foreground">
+            No tags yet — an admin can create them here or in Settings → Tags.
+          </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {allTags.map((t) => {
@@ -397,9 +469,35 @@ export function TicketPanel({
                 </button>
               );
             })}
+            {/* Create-and-apply, right where the need appears. */}
+            {isAdmin && (
+              <TagCreator
+                conversationId={conversation.id}
+                onCreated={(tagId) => {
+                  setTagIds((prev) => [...prev, tagId]);
+                  router.refresh();
+                }}
+              />
+            )}
           </div>
         )}
       </Section>
+
+      {contact && (
+        <Section label="Notes" icon={Pencil}>
+          <ContactNotes contactId={contact.id} initial={contact.notes} />
+        </Section>
+      )}
+
+      {contact && (
+        <Section label="Details">
+          <ContactFields
+            contactId={contact.id}
+            company={contact.company}
+            attributes={contact.attributes}
+          />
+        </Section>
+      )}
 
       {showSla && (
         <Section label="Service level">
@@ -438,8 +536,312 @@ export function TicketPanel({
       )}
 
       <Section label="Channel">
-        <p className="text-[12.5px]">{conversation.inboxName}</p>
+        <ChannelName
+          inboxId={conversation.inboxId}
+          name={conversation.inboxName}
+          canRename={isAdmin}
+        />
       </Section>
+    </div>
+  );
+}
+
+/** Inline "+ tag" that creates AND applies — no settings round-trip. */
+function TagCreator({
+  conversationId,
+  onCreated,
+}: {
+  conversationId: string;
+  onCreated: (tagId: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const [pending, start] = useTransition();
+
+  function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setEditing(false);
+      return;
+    }
+    start(async () => {
+      const res = await createAndApplyTag({ conversationId, name: trimmed });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Tagged "${trimmed}"`);
+      setName('');
+      setEditing(false);
+      onCreated(res.tagId);
+    });
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="flex items-center gap-1 rounded-md border border-dashed border-border-strong px-2 py-0.5 text-[11.5px] font-medium text-muted-foreground transition-colors hover:border-brand/40 hover:text-brand"
+      >
+        <Plus className="h-3 w-3" />
+        New tag
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+        onBlur={submit}
+        disabled={pending}
+        placeholder="tag name"
+        className="w-24 rounded-md border bg-transparent px-2 py-0.5 text-[11.5px] outline-none focus:border-brand/50"
+      />
+    </span>
+  );
+}
+
+/** The channel's display name, renamable in place. "iMessage" is a default, not an identity. */
+function ChannelName({
+  inboxId,
+  name,
+  canRename,
+}: {
+  inboxId: string;
+  name: string;
+  canRename: boolean;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(name);
+  const [pending, start] = useTransition();
+  useEffect(() => setValue(name), [name]);
+
+  function submit() {
+    const trimmed = value.trim();
+    setEditing(false);
+    if (!trimmed || trimmed === name) {
+      setValue(name);
+      return;
+    }
+    start(async () => {
+      const res = await renameInbox(inboxId, trimmed);
+      if (!res.ok) {
+        setValue(name);
+        toast.error('error' in res ? res.error : 'Could not rename');
+        return;
+      }
+      toast.success(`Number renamed to "${trimmed}"`);
+      router.refresh();
+    });
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+          if (e.key === 'Escape') {
+            setValue(name);
+            setEditing(false);
+          }
+        }}
+        onBlur={submit}
+        disabled={pending}
+        maxLength={60}
+        className="w-full rounded-md border bg-transparent px-2 py-1 text-[12.5px] outline-none focus:border-brand/50"
+      />
+    );
+  }
+
+  return (
+    <div className="group/chan flex items-center gap-1.5">
+      <p className="min-w-0 flex-1 truncate text-[12.5px]">{name}</p>
+      {canRename && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-label="Rename this number"
+          title="Rename this number"
+          className="rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:text-foreground group-hover/chan:opacity-100"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Notes on the person — saved on blur, shared with the whole team. */
+function ContactNotes({ contactId, initial }: { contactId: string; initial: string | null }) {
+  const [value, setValue] = useState(initial ?? '');
+  const [saved, setSaved] = useState<string>(initial ?? '');
+  const [, start] = useTransition();
+
+  function save() {
+    if (value === saved) return;
+    const next = value;
+    start(async () => {
+      const res = await updateContactDetails({ contactId, notes: next });
+      if (res.ok) {
+        setSaved(next);
+        toast.success('Notes saved', { duration: 1500 });
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      rows={3}
+      maxLength={4000}
+      placeholder="Anything the next teammate should know about this person…"
+      className="w-full resize-none rounded-lg border bg-transparent px-2.5 py-2 text-[12.5px] leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-brand/50"
+    />
+  );
+}
+
+/** Company + custom key/value fields — the trackable facts of a client. */
+function ContactFields({
+  contactId,
+  company: initialCompany,
+  attributes,
+}: {
+  contactId: string;
+  company: string | null;
+  attributes: Record<string, string>;
+}) {
+  const router = useRouter();
+  const [company, setCompany] = useState(initialCompany ?? '');
+  const [savedCompany, setSavedCompany] = useState(initialCompany ?? '');
+  const [adding, setAdding] = useState(false);
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [pending, start] = useTransition();
+
+  function saveCompany() {
+    if (company === savedCompany) return;
+    const next = company;
+    start(async () => {
+      const res = await updateContactDetails({ contactId, company: next });
+      if (res.ok) setSavedCompany(next);
+      else toast.error(res.error);
+    });
+  }
+
+  function addField() {
+    const key = newKey.trim();
+    const value = newValue.trim();
+    if (!key || !value) return;
+    start(async () => {
+      const res = await setContactAttribute({ contactId, key, value });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setAdding(false);
+      setNewKey('');
+      setNewValue('');
+      router.refresh();
+    });
+  }
+
+  function removeField(key: string) {
+    start(async () => {
+      const res = await setContactAttribute({ contactId, key, value: '' });
+      if (res.ok) router.refresh();
+      else toast.error(res.error);
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="shrink-0 text-[12px] text-muted-foreground">Company</span>
+        <input
+          value={company}
+          onChange={(e) => setCompany(e.target.value)}
+          onBlur={saveCompany}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          maxLength={120}
+          placeholder="—"
+          className="w-[58%] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-right text-[12.5px] outline-none transition-colors hover:border-border focus:border-brand/50 focus:text-left"
+        />
+      </div>
+
+      {Object.entries(attributes).map(([key, value]) => (
+        <div key={key} className="group/attr flex items-center justify-between gap-3">
+          <span className="min-w-0 shrink-0 truncate text-[12px] text-muted-foreground">
+            {key}
+          </span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-[12.5px]">{value}</span>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => removeField(key)}
+              aria-label={`Remove ${key}`}
+              className="rounded p-0.5 text-muted-foreground/50 opacity-0 transition-all hover:text-destructive group-hover/attr:opacity-100"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="flex items-center gap-1.5">
+          <input
+            autoFocus
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="Field"
+            maxLength={40}
+            className="w-2/5 rounded-md border bg-transparent px-2 py-1 text-[12px] outline-none focus:border-brand/50"
+          />
+          <input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addField()}
+            placeholder="Value"
+            maxLength={500}
+            className="min-w-0 flex-1 rounded-md border bg-transparent px-2 py-1 text-[12px] outline-none focus:border-brand/50"
+          />
+          <button
+            type="button"
+            onClick={addField}
+            disabled={pending || !newKey.trim() || !newValue.trim()}
+            aria-label="Save field"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+          >
+            <Check className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-brand"
+        >
+          <Plus className="h-3 w-3" />
+          Add field
+        </button>
+      )}
     </div>
   );
 }

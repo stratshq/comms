@@ -98,6 +98,26 @@ export interface AdminPanelProps {
   suggestedModels: Record<string, string>;
 }
 
+/** A named integration we're committed to, honestly labelled as not here yet. */
+function AppCard({ name, hint }: { name: string; hint: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 opacity-80">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-[13px] font-bold text-muted-foreground">
+        {name[0]}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          {name}
+          <span className="rounded bg-secondary px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Coming soon
+          </span>
+        </p>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
 function StatusDot({ ok }: { ok: boolean }) {
   return ok ? (
     <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
@@ -316,20 +336,46 @@ export function AdminPanel(p: AdminPanelProps) {
 
       {/* ---------------- Apps ---------------- */}
       {tab === 'apps' && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
-              <Blocks className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Apps — coming soon</p>
-              <p className="mx-auto mt-1 max-w-[380px] text-xs leading-relaxed text-muted-foreground">
-                Sidebar apps that bring Stripe, Shopify and your CRM into the contact panel, plus
-                reply-from-Slack. Tracked on the roadmap as the platform wave.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">CRM</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 sm:grid-cols-2">
+              {[
+                {
+                  name: 'Twenty',
+                  hint: 'Sync contacts and conversations to the open-source CRM.',
+                },
+                { name: 'HubSpot', hint: 'Contacts, deals and timeline events, both ways.' },
+                { name: 'Attio', hint: 'Threads on the record, records in the panel.' },
+                { name: 'Salesforce', hint: 'Log conversations against leads and cases.' },
+              ].map((app) => (
+                <AppCard key={app.name} name={app.name} hint={app.hint} />
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Chat</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 sm:grid-cols-2">
+              {[
+                { name: 'Slack', hint: 'Notifications in a channel; reply without leaving Slack.' },
+                { name: 'Discord', hint: 'Route conversations into a server channel.' },
+              ].map((app) => (
+                <AppCard key={app.name} name={app.name} hint={app.hint} />
+              ))}
+            </CardContent>
+          </Card>
+
+          <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+            These are the integrations being built, in the order shown — named here so you know
+            what&apos;s coming rather than guessing. A sidebar-apps framework (your CRM&apos;s
+            record rendered inside the contact panel) is the platform wave underneath them.
+          </p>
+        </div>
       )}
 
       {/* ---------------- AI ---------------- */}

@@ -3,7 +3,9 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from '@comms/db';
 import {
   attachments,
   contactIdentities,
+  contacts,
   conversations,
+  conversationParticipants,
   drafts,
   conversationTags,
   messages,
@@ -635,6 +637,45 @@ export async function getThreadMedia(conversationId: string): Promise<ThreadMedi
   }
 
   return { photos: photoRows, files: fileRows, links: links.slice(0, 50) };
+}
+
+export interface GroupParticipant {
+  contactId: string | null;
+  name: string | null;
+  address: string;
+  rawAddress: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * Who is actually in a group conversation.
+ *
+ * The participants table has been populated at ingest since day one and the
+ * details panel never read it — a group thread showed one phone number,
+ * which answered "who is this" with a lie of omission.
+ */
+export async function getGroupParticipants(conversationId: string): Promise<GroupParticipant[]> {
+  const rows = await db
+    .select({
+      contactId: contacts.id,
+      name: contacts.displayName,
+      address: contactIdentities.value,
+      rawAddress: contactIdentities.rawValue,
+      avatarUrl: contacts.avatarUrl,
+    })
+    .from(conversationParticipants)
+    .innerJoin(
+      contactIdentities,
+      eq(contactIdentities.id, conversationParticipants.contactIdentityId),
+    )
+    .leftJoin(contacts, eq(contacts.id, contactIdentities.contactId))
+    .where(eq(conversationParticipants.conversationId, conversationId));
+
+  // Named members first, then by address — the people you know lead.
+  return rows.sort((a, b) => {
+    if (Boolean(a.name) !== Boolean(b.name)) return a.name ? -1 : 1;
+    return (a.name ?? a.address).localeCompare(b.name ?? b.address);
+  });
 }
 
 export interface IntroContext {

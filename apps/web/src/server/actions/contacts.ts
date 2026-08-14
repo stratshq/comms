@@ -38,3 +38,58 @@ export async function nameContact(input: {
   revalidatePath('/inbox');
   return { ok: true };
 }
+
+/**
+ * Free-form facts about a client, edited straight from the details panel.
+ * Notes and company have had columns since the first migration; this is the
+ * first UI that can write them.
+ */
+export async function updateContactDetails(input: {
+  contactId: string;
+  notes?: string | null;
+  company?: string | null;
+}): Promise<ActionResult> {
+  await requireUser();
+  const patch: { notes?: string | null; company?: string | null } = {};
+  if (input.notes !== undefined) patch.notes = input.notes?.trim().slice(0, 4000) || null;
+  if (input.company !== undefined) patch.company = input.company?.trim().slice(0, 120) || null;
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  await db.update(contacts).set(patch).where(eq(contacts.id, input.contactId));
+  revalidatePath('/inbox');
+  return { ok: true };
+}
+
+/**
+ * Custom fields: the `attributes` jsonb has existed unused since the first
+ * schema — "track more things" is exactly what it was for. Empty value
+ * deletes the key.
+ */
+export async function setContactAttribute(input: {
+  contactId: string;
+  key: string;
+  value: string;
+}): Promise<ActionResult> {
+  await requireUser();
+  const key = input.key.trim().slice(0, 40);
+  if (!key) return { ok: false, error: 'Field name is required.' };
+
+  const contact = await db.query.contacts.findFirst({
+    where: eq(contacts.id, input.contactId),
+    columns: { attributes: true },
+  });
+  if (!contact) return { ok: false, error: 'Contact not found.' };
+
+  const attributes = { ...(contact.attributes ?? {}) };
+  const value = input.value.trim().slice(0, 500);
+  if (value) attributes[key] = value;
+  else delete attributes[key];
+
+  if (Object.keys(attributes).length > 30) {
+    return { ok: false, error: 'That is enough custom fields for one human.' };
+  }
+
+  await db.update(contacts).set({ attributes }).where(eq(contacts.id, input.contactId));
+  revalidatePath('/inbox');
+  return { ok: true };
+}

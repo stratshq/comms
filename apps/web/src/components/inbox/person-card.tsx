@@ -117,7 +117,9 @@ export function PersonCard(p: PersonCardProps) {
         </div>
       </div>
 
-      {p.addresses.length > 0 && (
+      {/* For a group, one member's number under the group name reads as THE
+          number — the Members section in the panel is the honest answer. */}
+      {!p.isGroup && p.addresses.length > 0 && (
         <div className="mt-3 space-y-0.5">
           {p.addresses.slice(0, 4).map((a) => (
             <p key={a.value} className="type-body truncate text-muted-foreground">

@@ -160,6 +160,40 @@ export async function renameSavedView(id: string, name: string): Promise<ViewRes
   return { ok: true };
 }
 
+/**
+ * Create a tag and apply it to a conversation in one move — the panel's
+ * "No tags yet" dead-end, fixed. Admin because the tag list is deliberately
+ * curated (that's the whole point of the AI suggestion queue); reuses an
+ * existing tag of the same name instead of erroring.
+ */
+export async function createAndApplyTag(input: {
+  conversationId: string;
+  name: string;
+  color?: string;
+}): Promise<{ ok: true; tagId: string } | { ok: false; error: string }> {
+  await requireAdmin();
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: 'Tag name is required.' };
+  if (name.length > 40) return { ok: false, error: 'Tag name must be 40 characters or fewer.' };
+
+  const [created] = await db
+    .insert(tags)
+    .values({ name, color: input.color || '#71717a' })
+    .onConflictDoNothing()
+    .returning({ id: tags.id });
+  const tagId = created?.id ?? (await db.query.tags.findFirst({ where: eq(tags.name, name) }))?.id;
+  if (!tagId) return { ok: false, error: 'Could not create the tag.' };
+
+  await db
+    .insert(conversationTags)
+    .values({ conversationId: input.conversationId, tagId })
+    .onConflictDoNothing();
+
+  revalidatePath(`/inbox/${input.conversationId}`);
+  revalidatePath('/settings/tags');
+  return { ok: true, tagId };
+}
+
 // ---- Tag hygiene ------------------------------------------------------------
 
 /**
