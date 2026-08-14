@@ -38,7 +38,7 @@ const schema = z.object({
   // AI features (summarization, suggested replies, auto-triage). Optional —
   // when ANTHROPIC_API_KEY is unset, AI features are disabled and degrade cleanly.
   ANTHROPIC_API_KEY: z.string().optional(),
-  AI_MODEL: z.string().default('claude-opus-4-8'),
+  AI_MODEL: z.string().default('claude-sonnet-5'),
 
   // Outbound send pacing: minimum ms between sends per connection, to stay under
   // Apple's iMessage throttling. Applied globally per BlueBubbles number.

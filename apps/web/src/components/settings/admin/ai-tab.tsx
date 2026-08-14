@@ -27,7 +27,9 @@ import { ComingSoon } from './shared';
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
-  google: 'Google',
+  // Named for the models, not the company: people go looking for "Gemini",
+  // and "Google" reads like an account provider next to OpenAI and Anthropic.
+  google: 'Google Gemini',
   xai: 'xAI',
   custom: 'Custom (OpenAI-compatible)',
 };
@@ -46,12 +48,15 @@ export function AiTab({
   envAnthropicKey,
   envModel,
   suggestedModels,
+  knownModels,
   licensed,
 }: {
   providers: AiProviderRow[];
   envAnthropicKey: boolean;
   envModel: string;
   suggestedModels: Record<string, string>;
+  /** Model ids offered as autocomplete. Suggestions, never a whitelist. */
+  knownModels: Record<string, string[]>;
   /** Usage reporting is an enterprise feature; unlicensed instances see the pitch. */
   licensed: boolean;
 }) {
@@ -182,7 +187,17 @@ export function AiTab({
                     value={pModel}
                     onChange={(e) => setPModel(e.target.value)}
                     placeholder={suggestedModels[pType] || 'model id'}
+                    // Free text with autocomplete rather than a dropdown:
+                    // vendors ship new ids constantly, and a closed list would
+                    // make this panel the reason you can't use one.
+                    list={`models-${pType}`}
+                    autoComplete="off"
                   />
+                  <datalist id={`models-${pType}`}>
+                    {(knownModels[pType] ?? []).map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
                 </div>
                 {pType === 'custom' && (
                   <div className="space-y-1.5 sm:col-span-2">
@@ -300,7 +315,7 @@ export function AiTab({
 
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             One provider is active at a time and serves every AI feature. Keys are encrypted at
-            rest and never sent to the browser. Anthropic uses its native API; OpenAI, Google, xAI
+            rest and never sent to the browser. Anthropic uses its native API; OpenAI, Gemini, xAI
             and custom providers speak the OpenAI-compatible dialect.
           </p>
         </CardContent>

@@ -125,7 +125,11 @@ export async function testAiProvider(id: string): Promise<TestResult> {
   try {
     const reply = await aiText({
       provider,
-      maxTokens: 20,
+      // Not 20. Current Gemini and GPT models spend budget thinking before
+      // they emit anything, so a tight cap comes back with an empty reply on
+      // a connection that is working perfectly — the test would call a good
+      // provider broken. Headroom costs a fraction of a cent, once.
+      maxTokens: 256,
       system: 'Reply with exactly: ok',
       user: 'Connection test.',
     });

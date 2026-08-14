@@ -63,6 +63,7 @@ export interface AdminPanelProps {
   };
   readOnlyConfig: { label: string; value: string; hint?: string }[];
   suggestedModels: Record<string, string>;
+  knownModels: Record<string, string[]>;
   email: EmailStatus;
   license: LicenseState;
   /** The instance's public URL, shown in About. */
@@ -128,6 +129,7 @@ export function AdminPanel(p: AdminPanelProps) {
           envAnthropicKey={p.envAnthropicKey}
           envModel={p.envModel}
           suggestedModels={p.suggestedModels}
+          knownModels={p.knownModels}
           licensed={p.license.licensed}
         />
       )}

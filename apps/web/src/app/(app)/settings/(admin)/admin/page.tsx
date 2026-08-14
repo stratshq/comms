@@ -1,7 +1,7 @@
 import { requirePermissionPage } from '@/lib/session';
 import { loadConfig } from '@comms/core';
 import { getRuntimeOverrides } from '@comms/db';
-import { SUGGESTED_MODELS } from '@comms/ai';
+import { KNOWN_MODELS, SUGGESTED_MODELS } from '@comms/ai';
 import {
   getAdminOverview,
   getSystemHealth,
@@ -96,6 +96,7 @@ export default async function AdminPanelPage() {
         }}
         readOnlyConfig={readOnlyConfig}
         suggestedModels={SUGGESTED_MODELS}
+        knownModels={KNOWN_MODELS}
         email={email}
         license={license}
         orgName={cfg.appUrl}

@@ -27,7 +27,7 @@ export const aiProviders = pgTable(
     apiKeyEncrypted: text('api_key_encrypted').notNull(),
     /** Required for 'custom'; the known vendors have built-in defaults. */
     baseUrl: text('base_url'),
-    /** Model id in the provider's own naming, e.g. claude-opus-4-8 or gpt-5.2. */
+    /** Model id in the provider's own naming, e.g. claude-sonnet-5 or gemini-3.6-flash. */
     model: text('model').notNull(),
     isActive: boolean('is_active').notNull().default(false),
     ...timestamps,

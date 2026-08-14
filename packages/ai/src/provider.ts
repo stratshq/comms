@@ -33,13 +33,37 @@ export const DEFAULT_BASE_URLS: Record<Exclude<ProviderType, 'anthropic' | 'cust
   xai: 'https://api.x.ai/v1',
 };
 
-/** Sensible starting models per vendor, offered as placeholders in the UI. */
+/**
+ * A sensible default model per vendor.
+ *
+ * Mid-tier on purpose. Everything this product asks a model to do — summarise
+ * a thread, draft a reply, classify a correspondent, group similar
+ * conversations — runs on every inbound message, so the frontier model is
+ * both overkill and the difference between a rounding error and a real bill.
+ */
 export const SUGGESTED_MODELS: Record<ProviderType, string> = {
-  anthropic: 'claude-opus-4-8',
+  anthropic: 'claude-sonnet-5',
   openai: 'gpt-5.2',
-  google: 'gemini-3-pro',
+  google: 'gemini-3.6-flash',
   xai: 'grok-4',
   custom: '',
+};
+
+/**
+ * Model ids offered as suggestions when connecting a provider.
+ *
+ * Suggestions, not a whitelist: the field stays free text because vendors
+ * ship new ids constantly and a closed list would make this panel the reason
+ * you can't use a model that came out yesterday. It exists because typing an
+ * exact id from memory is the step where connecting a provider actually
+ * fails, and the resulting 404 says nothing useful.
+ */
+export const KNOWN_MODELS: Record<ProviderType, string[]> = {
+  anthropic: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+  openai: ['gpt-5.2', 'gpt-5.2-mini'],
+  google: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'],
+  xai: ['grok-4', 'grok-4-fast'],
+  custom: [],
 };
 
 export function resolveBaseUrl(type: ProviderType, baseUrl: string | null): string | null {
