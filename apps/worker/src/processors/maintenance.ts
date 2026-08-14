@@ -7,6 +7,7 @@ import {
   classifyCorrespondent,
   describeConnectionError,
   isRealContactName,
+  parseTextTapback,
   detectCommitment,
   enqueueAttachment,
   enqueueMaintenance,
@@ -18,7 +19,20 @@ import {
 } from '@comms/core';
 import { repairBlankNames, repairChatNamedContacts, syncContacts } from '../lib/contacts.js';
 import { backfillParticipants, repairContactlessConversations } from '../lib/participants.js';
-import { getDb, eq, and, asc, desc, lte, ne, inArray, isNotNull, sql, roleGrants } from '@comms/db';
+import {
+  getDb,
+  eq,
+  and,
+  asc,
+  desc,
+  lte,
+  ne,
+  inArray,
+  isNull,
+  isNotNull,
+  sql,
+  roleGrants,
+} from '@comms/db';
 import {
   appSettings,
   attachments,
@@ -656,6 +670,59 @@ async function contactSync(connectionId: string) {
     });
 }
 
+/**
+ * Undo previews that a tapback overwrote.
+ *
+ * Before reactions were excluded from the conversation bump, hearting a text
+ * made `Loved "not home!"` the last thing a thread appeared to say — and if
+ * no real message followed, it stayed that way. Rewinds preview and ordering
+ * to the newest message that isn't a reaction.
+ *
+ * Cheap and self-limiting: it only looks at conversations whose stored
+ * preview still parses as a tapback, which is nothing at all once clean.
+ */
+async function repairTapbackPreviews(): Promise<number> {
+  const db = getDb();
+  const suspects = await db
+    .select({
+      id: conversations.id,
+      preview: conversations.lastMessagePreview,
+    })
+    .from(conversations)
+    .where(isNotNull(conversations.lastMessagePreview));
+
+  let fixed = 0;
+  for (const c of suspects) {
+    if (!parseTextTapback(c.preview)) continue;
+
+    const [real] = await db
+      .select({ body: messages.body, sentAt: messages.sentAt, createdAt: messages.createdAt })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, c.id),
+          isNull(messages.reactionType),
+          ne(messages.authorType, 'system'),
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    if (!real) continue;
+
+    await db
+      .update(conversations)
+      .set({
+        lastMessagePreview: real.body?.slice(0, 280) ?? '',
+        lastMessageAt: real.sentAt ?? real.createdAt,
+      })
+      .where(eq(conversations.id, c.id));
+    fixed += 1;
+  }
+
+  if (fixed) log.info({ count: fixed }, 'restored previews a tapback had overwritten');
+  return fixed;
+}
+
 /** Marks the one-time rescue of attachments failed for want of a bucket. */
 const ATTACHMENT_RESCUE_KEY = 'attachment_storage_rescue_done';
 
@@ -748,6 +815,7 @@ export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void
     case 'repairNames':
       await repairBlankNames();
       await repairChatNamedContacts();
+      await repairTapbackPreviews();
       return;
     case 'repairContacts':
       await repairContactlessConversations();

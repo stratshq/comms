@@ -1,4 +1,4 @@
-import { getDb, eq, and, desc, isNull, ne } from '@comms/db';
+import { getDb, eq, and, desc, isNull, isNotNull, ne } from '@comms/db';
 import {
   conversations,
   messages,
@@ -12,6 +12,7 @@ import {
   parseChatGuid,
   addressFromChatGuid,
   reactionFromAssociatedType,
+  parseTextTapback,
   isVoiceMemoAttachment,
   classifyCorrespondent,
   isRealContactName,
@@ -252,7 +253,9 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     }
   }
 
-  const reaction = reactionFromAssociatedType(bb.associatedMessageType);
+  // A structured tapback, or the plain-text one SMS delivers instead.
+  const textTapback = bb.associatedMessageType ? null : parseTextTapback(bb.text);
+  const reaction = reactionFromAssociatedType(bb.associatedMessageType) ?? textTapback?.reaction ?? null;
   const sentAt = bbDate(bb.dateCreated) ?? new Date();
 
   // Case 2: reconcile our outbound echo by tempGuid.
@@ -320,6 +323,29 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     log.warn({ err: (err as Error).message, chatGuid }, 'could not record participants'),
   );
 
+  /**
+   * What a text tapback is decorating.
+   *
+   * SMS tapbacks carry no reference to their target, only a quote of it, so
+   * the newest message with exactly that body is the best available answer.
+   * Wrong only when the same words were sent twice in one thread, where the
+   * reaction lands on the later copy — which is also what a human reading the
+   * quote would assume.
+   */
+  let associatedGuid = bb.associatedMessageGuid ?? null;
+  if (!associatedGuid && textTapback?.target) {
+    const target = await db.query.messages.findFirst({
+      where: and(
+        eq(messages.conversationId, conversation.id),
+        eq(messages.body, textTapback.target),
+        isNotNull(messages.providerMessageGuid),
+      ),
+      orderBy: [desc(messages.createdAt)],
+      columns: { providerMessageGuid: true },
+    });
+    associatedGuid = target?.providerMessageGuid ?? null;
+  }
+
   const [msg] = await db
     .insert(messages)
     .values({
@@ -331,7 +357,7 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
       body: bb.text ?? null,
       subject: bb.subject ?? null,
       status: bb.isFromMe ? 'sent' : 'delivered',
-      associatedMessageGuid: bb.associatedMessageGuid ?? null,
+      associatedMessageGuid: associatedGuid,
       reactionType: reaction,
       replyToMessageGuid: bb.threadOriginatorGuid ?? null,
       sentAt,
@@ -354,27 +380,40 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
         : '📎 Attachment'
       : '');
   const isInbound = !bb.isFromMe;
-  await db
-    .update(conversations)
-    .set({
-      lastMessageAt: sentAt,
-      lastMessagePreview: preview,
-      ...(isInbound ? { lastInboundAt: sentAt } : {}),
-      // A muted thread keeps receiving messages but never counts them as
-      // unread — no badge, no bold row, no sound. That's the whole feature.
-      ...(isInbound && !conversation.mutedAt
-        ? { unreadCount: (conversation.unreadCount ?? 0) + 1 }
-        : {}),
-      // An inbound message pulls the thread back into the inbox from wherever
-      // it was filed. This matters most for SNOOZED: a snoozed conversation is
-      // genuinely hidden, so without this a reply would sit unseen until the
-      // wake time — which is exactly the message loss snoozing is supposed to
-      // prevent. Every mail client wakes a snoozed thread on reply.
-      ...(isInbound && (conversation.status === 'closed' || conversation.status === 'snoozed')
-        ? { status: 'open' as const, snoozedUntil: null }
-        : {}),
-    })
-    .where(eq(conversations.id, conversation.id));
+
+  /**
+   * A tapback is an acknowledgement, not a message.
+   *
+   * It gets a row so the thread can render the heart, and that is all it
+   * gets: no preview, no unread badge, no reordering the inbox, and it does
+   * not pull a closed thread back open. Messages doesn't do any of those
+   * either — loving a text is the lightest possible signal, and treating it
+   * as traffic made "Loved \"not home!\"" the last thing a conversation
+   * appeared to say.
+   */
+  if (!reaction) {
+    await db
+      .update(conversations)
+      .set({
+        lastMessageAt: sentAt,
+        lastMessagePreview: preview,
+        ...(isInbound ? { lastInboundAt: sentAt } : {}),
+        // A muted thread keeps receiving messages but never counts them as
+        // unread — no badge, no bold row, no sound. That's the whole feature.
+        ...(isInbound && !conversation.mutedAt
+          ? { unreadCount: (conversation.unreadCount ?? 0) + 1 }
+          : {}),
+        // An inbound message pulls the thread back into the inbox from wherever
+        // it was filed. This matters most for SNOOZED: a snoozed conversation is
+        // genuinely hidden, so without this a reply would sit unseen until the
+        // wake time — which is exactly the message loss snoozing is supposed to
+        // prevent. Every mail client wakes a snoozed thread on reply.
+        ...(isInbound && (conversation.status === 'closed' || conversation.status === 'snoozed')
+          ? { status: 'open' as const, snoozedUntil: null }
+          : {}),
+      })
+      .where(eq(conversations.id, conversation.id));
+  }
 
   await publishEvent({
     type: 'message.created',
@@ -388,8 +427,11 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     inboxId: conn.inboxId,
   });
 
-  // SLA clock / CSAT capture + per-message automations on every inbound message.
-  if (isInbound) {
+  // SLA clock / CSAT capture + per-message automations on every inbound
+  // message. A tapback is excluded throughout: it is not a reply, so it must
+  // not stop an SLA clock, count as a CSAT rating, trip an automation, or
+  // reclassify who the correspondent is.
+  if (isInbound && !reaction) {
     // Classify before automations run, so a rule can condition on the kind.
     await reclassifyKind(conversation.id, conversation).catch((err) =>
       log.warn({ err: (err as Error).message }, 'kind classification failed'),

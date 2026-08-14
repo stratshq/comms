@@ -3,6 +3,7 @@ import {
   normalizeAddress,
   parseChatGuid,
   reactionFromAssociatedType,
+  parseTextTapback,
   bbDate,
 } from '../src/bluebubbles/helpers';
 
@@ -83,5 +84,65 @@ describe('bbDate', () => {
     expect(bbDate(0)).toBeNull();
     expect(bbDate(null)).toBeNull();
     expect(bbDate(undefined)).toBeNull();
+  });
+});
+
+/**
+ * Over SMS there is no such thing as a tapback, so Apple sends the sentence
+ * instead. Without recognising it, hearting a green-bubble text posts a
+ * message into the thread and becomes the conversation's preview.
+ */
+describe('parseTextTapback', () => {
+  it('reads the reaction and the message it decorates', () => {
+    expect(parseTextTapback('Loved "not home!"')).toEqual({
+      reaction: 'love',
+      target: 'not home!',
+    });
+    expect(parseTextTapback('Laughed at "see you then"')).toEqual({
+      reaction: 'laugh',
+      target: 'see you then',
+    });
+    expect(parseTextTapback('Emphasized "bring the keys"')).toEqual({
+      reaction: 'emphasize',
+      target: 'bring the keys',
+    });
+  });
+
+  it('handles the curly quotes Messages actually emits', () => {
+    expect(parseTextTapback('Liked “not home!”')).toEqual({
+      reaction: 'like',
+      target: 'not home!',
+    });
+  });
+
+  it('handles the shorthand for non-text content', () => {
+    expect(parseTextTapback('Loved an image')).toEqual({ reaction: 'love', target: null });
+    expect(parseTextTapback('Liked a link')).toEqual({ reaction: 'like', target: null });
+  });
+
+  it('reads removals as the negative reaction', () => {
+    expect(parseTextTapback('Removed a heart from "not home!"')).toEqual({
+      reaction: '-love',
+      target: 'not home!',
+    });
+    expect(parseTextTapback('Removed an exclamation from "bring the keys"')).toEqual({
+      reaction: '-emphasize',
+      target: 'bring the keys',
+    });
+  });
+
+  /**
+   * The expensive direction. A false positive hides a message somebody
+   * actually sent, so anything that merely resembles the shape stays a
+   * message.
+   */
+  it('leaves real messages alone', () => {
+    expect(parseTextTapback('I loved "The Bear" too')).toBeNull();
+    expect(parseTextTapback('Loved it')).toBeNull();
+    expect(parseTextTapback('Liked your photo on Instagram')).toBeNull();
+    expect(parseTextTapback('she laughed at "the joke" and left')).toBeNull();
+    expect(parseTextTapback('Loved')).toBeNull();
+    expect(parseTextTapback('')).toBeNull();
+    expect(parseTextTapback(null)).toBeNull();
   });
 });

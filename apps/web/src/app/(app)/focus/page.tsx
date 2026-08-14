@@ -148,6 +148,7 @@ export default async function FocusPage({
             ((m.metadata as { draftedBy?: { name?: string | null } } | null)?.draftedBy?.name ??
               null) || null,
           reactionType: m.reactionType,
+          associatedMessageGuid: m.associatedMessageGuid,
           createdAt: m.createdAt,
           sentAt: m.sentAt,
           readAt: m.readAt,

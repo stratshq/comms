@@ -50,6 +50,8 @@ export type ThreadMessage = {
   /** For approved shared drafts: whose words these were ("drafted by X"). */
   draftedByName?: string | null;
   reactionType: string | null;
+  /** For a tapback: the provider guid of the message it decorates. */
+  associatedMessageGuid?: string | null;
   createdAt: Date | string;
   sentAt: Date | string | null;
   readAt: Date | string | null;
@@ -244,6 +246,42 @@ export function MessageThread({
     return out;
   }, [messages, findQuery]);
 
+  /**
+   * Tapbacks, grouped onto the message each one decorates.
+   *
+   * Only those whose target is resolved and present in the loaded thread; the
+   * rest keep their own line so a reaction is never silently dropped.
+   */
+  const reactionsByTarget = useMemo(() => {
+    const guids = new Set(
+      messages.map((m) => m.providerMessageGuid).filter((g): g is string => Boolean(g)),
+    );
+    const byTarget = new Map<string, ThreadMessage[]>();
+    for (const m of messages) {
+      if (!m.reactionType || !m.associatedMessageGuid) continue;
+      if (!guids.has(m.associatedMessageGuid)) continue;
+      // A removal cancels the reaction rather than adding a second chip.
+      const list = byTarget.get(m.associatedMessageGuid) ?? [];
+      if (m.reactionType.startsWith('-')) {
+        const base = m.reactionType.slice(1);
+        byTarget.set(
+          m.associatedMessageGuid,
+          list.filter((r) => !(r.reactionType === base && r.direction === m.direction)),
+        );
+        continue;
+      }
+      list.push(m);
+      byTarget.set(m.associatedMessageGuid, list);
+    }
+    return byTarget;
+  }, [messages]);
+
+  /** Tapbacks rendered on a bubble must not also render as their own row. */
+  const attachedIds = useMemo(
+    () => new Set(Array.from(reactionsByTarget.values()).flat().map((m) => m.id)),
+    [reactionsByTarget],
+  );
+
   // A shrinking result set must not leave the index pointing past the end.
   useEffect(() => setFindIndex(0), [findQuery]);
   const activeMatch = matches[Math.min(findIndex, Math.max(matches.length - 1, 0))] ?? null;
@@ -311,6 +349,11 @@ export function MessageThread({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5 md:py-6">
         <div className="mx-auto w-full max-w-[680px] space-y-1">
         {messages.map((m, i) => {
+          // A tapback that found its target rides on that bubble instead of
+          // taking a line of its own — a heart is a note about a message, and
+          // reading "You reacted ❤️" underneath the thing you hearted is a
+          // worse rendering of the same fact.
+          const attached = m.providerMessageGuid ? reactionsByTarget.get(m.providerMessageGuid) : undefined;
           const stamp = m.sentAt ?? m.createdAt;
           const day = dayLabel(stamp);
           const showDay = day !== lastDay;
@@ -334,6 +377,7 @@ export function MessageThread({
           }
 
           if (m.reactionType) {
+            if (attachedIds.has(m.id)) return null;
             const base = m.reactionType.replace('-', '');
             const removed = m.reactionType.startsWith('-');
             return (
@@ -471,6 +515,28 @@ export function MessageThread({
                     ))}
                   </div>
                 </div>
+
+                {/* Tapbacks, sitting on the bubble they decorate. Overlapping
+                    it the way Messages does, so it reads as a mark on the
+                    message rather than a reply to it. */}
+                {attached && attached.length > 0 && (
+                  <div
+                    className={cn(
+                      '-mt-2 flex gap-0.5',
+                      isOutbound ? 'mr-2 flex-row-reverse' : 'ml-2',
+                    )}
+                  >
+                    {attached.map((r) => (
+                      <span
+                        key={r.id}
+                        title={`${r.authorName || (r.direction === 'inbound' ? 'They' : 'You')} reacted`}
+                        className="rounded-full border bg-surface px-1.5 py-0.5 text-[11px] leading-none shadow-xs"
+                      >
+                        {REACTION_EMOJI[r.reactionType!.replace('-', '')] ?? '👍'}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {/* Timestamp only on the last message of a group — cuts visual noise a lot. */}
                 {!sameAsNext && (

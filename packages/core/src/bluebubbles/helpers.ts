@@ -91,6 +91,79 @@ export function bbDate(ms: number | undefined | null): Date | null {
   return new Date(ms);
 }
 
+/**
+ * Tapbacks that arrive as ordinary text.
+ *
+ * Between two iMessage users a tapback is structured data — an
+ * `associatedMessageType` pointing at the message it decorates. Over SMS
+ * there is no such thing, so Apple sends the literal sentence `Loved "not
+ * home!"` as a new message. Without this, loving a green-bubble text posts a
+ * message into the thread and makes `Loved "not home!"` the conversation's
+ * preview, which is not what happens in Messages and not what anyone means
+ * by tapping a heart.
+ *
+ * Matched strictly — anchored, with the quoted span required — because the
+ * cost of a false positive is hiding a real message someone sent.
+ */
+const TAPBACK_VERBS: Record<string, string> = {
+  loved: 'love',
+  liked: 'like',
+  disliked: 'dislike',
+  'laughed at': 'laugh',
+  emphasized: 'emphasize',
+  emphasised: 'emphasize',
+  questioned: 'question',
+};
+
+/** "Removed a heart from …" and friends — the undo half. */
+const TAPBACK_REMOVALS: Record<string, string> = {
+  heart: '-love',
+  like: '-like',
+  dislike: '-dislike',
+  laugh: '-laugh',
+  exclamation: '-emphasize',
+  question: '-question',
+};
+
+export interface TextTapback {
+  /** Reaction name, matching `reactionFromAssociatedType`. */
+  reaction: string;
+  /** The quoted text of the message being reacted to, when it was quoted. */
+  target: string | null;
+}
+
+export function parseTextTapback(body: string | null | undefined): TextTapback | null {
+  const text = body?.trim();
+  if (!text) return null;
+  // Curly quotes are what Messages actually emits; straight ones show up in
+  // relayed and re-encoded copies.
+  const quoted = String.raw`[“"](.+)[”"]`;
+
+  const removal = new RegExp(
+    `^Removed (?:a|an) (${Object.keys(TAPBACK_REMOVALS).join('|')}) from ${quoted}$`,
+    'is',
+  ).exec(text);
+  if (removal) {
+    return {
+      reaction: TAPBACK_REMOVALS[removal[1]!.toLowerCase()]!,
+      target: removal[2] ?? null,
+    };
+  }
+
+  const verbs = Object.keys(TAPBACK_VERBS).join('|');
+  // Either a quoted message, or the shorthand Apple uses for non-text
+  // content: `Loved an image`, `Liked a link`.
+  const match = new RegExp(`^(${verbs}) (?:${quoted}|(?:an?) (image|link|attachment|movie))$`, 'is').exec(
+    text,
+  );
+  if (!match) return null;
+
+  return {
+    reaction: TAPBACK_VERBS[match[1]!.toLowerCase()]!,
+    target: match[2] ?? null,
+  };
+}
+
 /** Map a BlueBubbles `associatedMessageType` code to a friendly reaction name. */
 export function reactionFromAssociatedType(type: number | string | null | undefined): string | null {
   if (type === null || type === undefined) return null;
