@@ -11,6 +11,7 @@ import {
   Images,
   Mail,
   MessageSquare,
+  Pencil,
   Phone,
   Plus,
   Users,
@@ -78,24 +79,56 @@ export interface PersonProfileData {
  * nav entry would imply a directory you go and browse, which is not what this
  * is for: you arrive here from a conversation, with a question about the
  * person you were just reading.
+ *
+ * It reads before it writes. Nearly every visit is someone checking a fact,
+ * so the default state is a profile — and a page of open input boxes is both
+ * harder to read and an invitation to change something by accident. Editing
+ * is a mode you enter on purpose.
  */
 export function PersonProfile({ data }: { data: PersonProfileData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const c = data.contact;
 
-  const [name, setName] = useState(c.displayName ?? '');
-  const [company, setCompany] = useState(c.company ?? '');
-  const [notes, setNotes] = useState(c.notes ?? '');
-  const [optedOut, setOptedOut] = useState(c.optedOut);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => ({
+    name: c.displayName ?? '',
+    company: c.company ?? '',
+    notes: c.notes ?? '',
+    optedOut: c.optedOut,
+  }));
   const [newAddress, setNewAddress] = useState('');
   const [fieldKey, setFieldKey] = useState('');
   const [fieldValue, setFieldValue] = useState('');
 
   const displayName = c.displayName?.trim() || formatAddress(primaryAddress(data)) || 'Unknown';
   const local = localTimeForAddress(primaryAddress(data));
+  const attributes = Object.entries(c.attributes);
 
-  function save<T>(run: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) {
+  function beginEdit() {
+    // Re-seed from props: a refresh may have landed since the last edit, and
+    // reopening with a stale draft would silently undo it on save.
+    setDraft({
+      name: c.displayName ?? '',
+      company: c.company ?? '',
+      notes: c.notes ?? '',
+      optedOut: c.optedOut,
+    });
+    setNewAddress('');
+    setFieldKey('');
+    setFieldValue('');
+    setEditing(true);
+  }
+
+  /**
+   * Run a list operation — adding an address, deleting a field — straight
+   * away.
+   *
+   * These aren't edits to a value, they're discrete acts with their own
+   * button, so deferring them to Save would leave a row visibly gone while
+   * still being there. Only the plain fields wait for Save.
+   */
+  function apply(run: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) {
     start(async () => {
       const res = await run();
       if (!res.ok) {
@@ -103,6 +136,45 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
         return;
       }
       onOk?.();
+      router.refresh();
+    });
+  }
+
+  function save() {
+    const name = draft.name.trim();
+    if (!name && c.displayName) {
+      toast.error('Name is required.');
+      return;
+    }
+
+    start(async () => {
+      const calls: Promise<{ ok: boolean; error?: string }>[] = [];
+      if (name && name !== (c.displayName ?? '')) {
+        calls.push(nameContact({ contactId: c.id, name }));
+      }
+      if (draft.company.trim() !== (c.company ?? '') || draft.notes.trim() !== (c.notes ?? '')) {
+        calls.push(
+          updateContactDetails({
+            contactId: c.id,
+            company: draft.company,
+            notes: draft.notes,
+          }),
+        );
+      }
+      if (draft.optedOut !== c.optedOut) {
+        calls.push(setContactOptOut({ contactId: c.id, optedOut: draft.optedOut }));
+      }
+      if (calls.length === 0) {
+        setEditing(false);
+        return;
+      }
+
+      const failed = (await Promise.all(calls)).find((r) => !r.ok);
+      if (failed) {
+        toast.error(failed.error ?? 'Something went wrong');
+        return;
+      }
+      setEditing(false);
       router.refresh();
     });
   }
@@ -119,7 +191,7 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
 
       {/* ---- Identity header ------------------------------------------- */}
       <div className="flex items-start gap-4">
-        <Avatar className="h-16 w-16 ring-1 ring-border">
+        <Avatar className="h-16 w-16 shrink-0 ring-1 ring-border">
           {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={displayName} />}
           <AvatarFallback className="bg-secondary text-lg font-semibold text-muted-foreground">
             {initials(displayName)}
@@ -136,7 +208,7 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
             )}
             {c.syncedAt && <span>synced {relativeTime(c.syncedAt)}</span>}
           </p>
-          {optedOut && (
+          {c.optedOut && (
             <Badge variant="soft-danger" size="sm" className="mt-2 gap-1">
               <Ban className="h-3 w-3" />
               Opted out — sends are blocked
@@ -148,10 +220,7 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
       {/* ---- Relationship at a glance ----------------------------------- */}
       <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border bg-surface p-4 sm:grid-cols-4">
         <Stat label="Messages" value={data.stats.totalMessages.toLocaleString()} />
-        <Stat
-          label="They sent"
-          value={data.stats.inbound.toLocaleString()}
-        />
+        <Stat label="They sent" value={data.stats.inbound.toLocaleString()} />
         <Stat
           label="Last heard from"
           value={data.stats.lastInboundAt ? relativeTime(data.stats.lastInboundAt) : '—'}
@@ -225,207 +294,249 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
         </CardContent>
       </Card>
 
-      {/* ---- Profile ------------------------------------------------------ */}
+      {/* ---- Details: read by default, edited on purpose ------------------ */}
       <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-base">Profile</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="person-name">Name</Label>
-              <Input
-                id="person-name"
-                value={name}
-                disabled={pending}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={() => {
-                  const next = name.trim();
-                  if (!next || next === (c.displayName ?? '')) return;
-                  save(() => nameContact({ contactId: c.id, name: next }));
-                }}
-                placeholder="Their name"
-              />
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Details</CardTitle>
+          {editing ? (
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" loading={pending} onClick={save}>
+                <Check className="h-3.5 w-3.5" />
+                Save
+              </Button>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="person-company">Company</Label>
-              <Input
-                id="person-company"
-                value={company}
-                disabled={pending}
-                onChange={(e) => setCompany(e.target.value)}
-                onBlur={() => {
-                  if (company.trim() === (c.company ?? '')) return;
-                  save(() => updateContactDetails({ contactId: c.id, company }));
-                }}
-                placeholder="Where they work"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="person-notes">Notes</Label>
-            <Textarea
-              id="person-notes"
-              value={notes}
-              disabled={pending}
-              rows={3}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => {
-                if (notes.trim() === (c.notes ?? '')) return;
-                save(() => updateContactDetails({ contactId: c.id, notes }));
-              }}
-              placeholder="Anything worth remembering before you reply."
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 border-t pt-4">
-            <div>
-              <p className="text-sm font-medium">Opted out</p>
-              <p className="text-xs text-muted-foreground">
-                Blocks every outbound message to them, including automations. Set automatically
-                when someone replies STOP.
-              </p>
-            </div>
-            <Switch
-              checked={optedOut}
-              disabled={pending}
-              onCheckedChange={(v) => {
-                setOptedOut(v);
-                save(
-                  () => setContactOptOut({ contactId: c.id, optedOut: v }),
-                  () => toast.success(v ? 'Sends to them are blocked' : 'Sends re-enabled'),
-                );
-              }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ---- Addresses ----------------------------------------------------- */}
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-base">Addresses</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Every number and email that reaches this person. Adding one here merges their history
-            — the same human texting from two numbers stops being two strangers.
-          </p>
-          {data.identities.map((i) => (
-            <div key={i.id} className="group flex items-center gap-2.5">
-              {i.kind === 'email' ? (
-                <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-              ) : (
-                <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-              )}
-              <span className="flex-1 truncate text-[13px]">
-                {formatAddress(i.rawValue ?? i.value) ?? i.value}
-              </span>
-              {data.identities.length > 1 && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    save(() => removeContactIdentity({ contactId: c.id, identityId: i.id }))
-                  }
-                  aria-label={`Remove ${i.value}`}
-                  className="rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-accent hover:text-destructive group-hover:opacity-100"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-          <form
-            className="flex gap-2 pt-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!newAddress.trim()) return;
-              save(
-                () => addContactIdentity({ contactId: c.id, address: newAddress }),
-                () => setNewAddress(''),
-              );
-            }}
-          >
-            <Input
-              value={newAddress}
-              disabled={pending}
-              onChange={(e) => setNewAddress(e.target.value)}
-              placeholder="+1 555 123 4567 or them@work.com"
-              className="h-8 text-[12.5px]"
-            />
-            <Button type="submit" size="sm" variant="outline" disabled={pending || !newAddress.trim()}>
-              <Plus className="h-3.5 w-3.5" />
-              Add
+          ) : (
+            <Button size="sm" variant="outline" onClick={beginEdit}>
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
             </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* ---- Custom fields ------------------------------------------------- */}
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-base">Custom fields</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {Object.entries(c.attributes).length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Anything you want to track about them — plan, renewal date, who owns the account.
-            </p>
           )}
-          {Object.entries(c.attributes).map(([k, v]) => (
-            <div key={k} className="group flex items-center gap-2.5">
-              <span className="w-32 shrink-0 truncate text-[12px] text-muted-foreground">{k}</span>
-              <span className="flex-1 truncate text-[13px]">{v}</span>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => save(() => setContactAttribute({ contactId: c.id, key: k, value: '' }))}
-                aria-label={`Remove ${k}`}
-                className="rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-accent hover:text-destructive group-hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+        </CardHeader>
+
+        <CardContent className="space-y-5">
+          {editing ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="person-name">Name</Label>
+                  <Input
+                    id="person-name"
+                    value={draft.name}
+                    disabled={pending}
+                    autoFocus
+                    onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                    placeholder="Their name"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="person-company">Company</Label>
+                  <Input
+                    id="person-company"
+                    value={draft.company}
+                    disabled={pending}
+                    onChange={(e) => setDraft((d) => ({ ...d, company: e.target.value }))}
+                    placeholder="Where they work"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="person-notes">Notes</Label>
+                <Textarea
+                  id="person-notes"
+                  value={draft.notes}
+                  disabled={pending}
+                  rows={3}
+                  onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                  placeholder="Anything worth remembering before you reply."
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <ReadRow label="Company" value={c.company} />
+              <div>
+                <p className="text-[11.5px] text-muted-foreground/70">Notes</p>
+                {c.notes ? (
+                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed">
+                    {c.notes}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-[13px] text-muted-foreground/60">None</p>
+                )}
+              </div>
             </div>
-          ))}
-          <form
-            className="flex gap-2 pt-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!fieldKey.trim() || !fieldValue.trim()) return;
-              save(
-                () => setContactAttribute({ contactId: c.id, key: fieldKey, value: fieldValue }),
-                () => {
-                  setFieldKey('');
-                  setFieldValue('');
-                },
-              );
-            }}
-          >
-            <Input
-              value={fieldKey}
-              disabled={pending}
-              onChange={(e) => setFieldKey(e.target.value)}
-              placeholder="Field"
-              className="h-8 w-32 shrink-0 text-[12.5px]"
-            />
-            <Input
-              value={fieldValue}
-              disabled={pending}
-              onChange={(e) => setFieldValue(e.target.value)}
-              placeholder="Value"
-              className="h-8 text-[12.5px]"
-            />
-            <Button
-              type="submit"
-              size="sm"
-              variant="outline"
-              disabled={pending || !fieldKey.trim() || !fieldValue.trim()}
-            >
-              <Check className="h-3.5 w-3.5" />
-            </Button>
-          </form>
+          )}
+
+          {/* ---- Addresses ---- */}
+          <div className="space-y-2 border-t pt-4">
+            <p className="text-[11.5px] text-muted-foreground/70">Addresses</p>
+            {data.identities.map((i) => (
+              <div key={i.id} className="group flex items-center gap-2.5">
+                {i.kind === 'email' ? (
+                  <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                ) : (
+                  <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                )}
+                <span className="flex-1 truncate text-[13px]">
+                  {formatAddress(i.rawValue ?? i.value) ?? i.value}
+                </span>
+                {editing && data.identities.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      apply(() => removeContactIdentity({ contactId: c.id, identityId: i.id }))
+                    }
+                    aria-label={`Remove ${i.value}`}
+                    className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-destructive"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {editing && (
+              <>
+                <form
+                  className="flex gap-2 pt-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newAddress.trim()) return;
+                    apply(
+                      () => addContactIdentity({ contactId: c.id, address: newAddress }),
+                      () => setNewAddress(''),
+                    );
+                  }}
+                >
+                  <Input
+                    value={newAddress}
+                    disabled={pending}
+                    onChange={(e) => setNewAddress(e.target.value)}
+                    placeholder="+1 555 123 4567 or them@work.com"
+                    className="h-8 text-[12.5px]"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    disabled={pending || !newAddress.trim()}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </form>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/70">
+                  Adding an address merges their history — the same person texting from two
+                  numbers stops being two strangers. Addresses save as soon as you add or remove
+                  them.
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* ---- Custom fields ---- */}
+          <div className="space-y-2 border-t pt-4">
+            <p className="text-[11.5px] text-muted-foreground/70">Custom fields</p>
+            {attributes.length === 0 && !editing && (
+              <p className="text-[13px] text-muted-foreground/60">None</p>
+            )}
+            {attributes.length === 0 && editing && (
+              <p className="text-[11.5px] text-muted-foreground/70">
+                Anything you want to track — plan, renewal date, who owns the account.
+              </p>
+            )}
+            {attributes.map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2.5">
+                <span className="w-32 shrink-0 truncate text-[12px] text-muted-foreground">
+                  {k}
+                </span>
+                <span className="flex-1 truncate text-[13px]">{v}</span>
+                {editing && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      apply(() => setContactAttribute({ contactId: c.id, key: k, value: '' }))
+                    }
+                    aria-label={`Remove ${k}`}
+                    className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-destructive"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {editing && (
+              <form
+                className="flex gap-2 pt-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!fieldKey.trim() || !fieldValue.trim()) return;
+                  apply(
+                    () => setContactAttribute({ contactId: c.id, key: fieldKey, value: fieldValue }),
+                    () => {
+                      setFieldKey('');
+                      setFieldValue('');
+                    },
+                  );
+                }}
+              >
+                <Input
+                  value={fieldKey}
+                  disabled={pending}
+                  onChange={(e) => setFieldKey(e.target.value)}
+                  placeholder="Field"
+                  className="h-8 w-32 shrink-0 text-[12.5px]"
+                />
+                <Input
+                  value={fieldValue}
+                  disabled={pending}
+                  onChange={(e) => setFieldValue(e.target.value)}
+                  placeholder="Value"
+                  className="h-8 text-[12.5px]"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || !fieldKey.trim() || !fieldValue.trim()}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </form>
+            )}
+          </div>
+
+          {/* ---- Opt-out ---- */}
+          <div className="border-t pt-4">
+            {editing ? (
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Opted out</p>
+                  <p className="text-xs text-muted-foreground">
+                    Blocks every outbound message to them, including automations. Set
+                    automatically when someone replies STOP.
+                  </p>
+                </div>
+                <Switch
+                  checked={draft.optedOut}
+                  disabled={pending}
+                  onCheckedChange={(v) => setDraft((d) => ({ ...d, optedOut: v }))}
+                />
+              </div>
+            ) : (
+              <ReadRow
+                label="Outbound messages"
+                value={c.optedOut ? 'Blocked — they opted out' : 'Allowed'}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -471,6 +582,17 @@ export function PersonProfile({ data }: { data: PersonProfileData }) {
 function primaryAddress(data: PersonProfileData): string {
   const first = data.identities[0];
   return first?.rawValue ?? first?.value ?? '';
+}
+
+function ReadRow({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <p className="text-[11.5px] text-muted-foreground/70">{label}</p>
+      <p className={cn('mt-0.5 text-[13px]', !value && 'text-muted-foreground/60')}>
+        {value || 'None'}
+      </p>
+    </div>
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
