@@ -16,12 +16,12 @@ import {
   CalendarClock,
   Sparkles,
   Layers,
-  Activity,
 } from 'lucide-react';
 import { Logo } from '@/components/brand';
 import { UserMenu } from '@/components/app/user-menu';
 import { NotificationsBell } from '@/components/app/notifications-bell';
 import { NewConversationButton } from '@/components/inbox/new-conversation';
+import { SidebarResizer, useSidebarWidth } from '@/components/app/sidebar-resizer';
 import { motion } from '@/components/ui/motion';
 import { cn } from '@/lib/utils';
 
@@ -110,10 +110,7 @@ export function Sidebar({
   counts,
   inboxes,
   views = [],
-  showAdminPanel = false,
 }: {
-  /** Surfaces a direct Admin panel row for people who can open it. */
-  showAdminPanel?: boolean;
   user: { name?: string | null; email?: string | null; image?: string | null };
   counts: {
     open: number;
@@ -131,6 +128,7 @@ export function Sidebar({
   const searchParams = useSearchParams();
   const activeInbox = searchParams.get('inbox');
   const onInbox = pathname === '/inbox' || pathname.startsWith('/inbox/');
+  const { width, setWidth, dragging, setDragging, persist } = useSidebarWidth();
 
   // Snoozed and Closed are folders, not filters: a conversation you snoozed is
   // gone from the inbox until it wakes, and this is where it went. Their counts
@@ -154,7 +152,23 @@ export function Sidebar({
   ];
 
   return (
-    <aside className="flex h-full w-[248px] shrink-0 flex-col border-r bg-surface-sunken">
+    <aside
+      // The custom property carries the user's width so it can apply at md+
+      // only — an inline `width` would also shrink the mobile drawer, which
+      // is a full-height slide-over and not theirs to resize.
+      style={{ '--sidebar-w': `${width}px` } as React.CSSProperties}
+      // No width transition on purpose: the stored width is only known after
+      // mount, so an animated one would visibly slide the whole shell open on
+      // every page load. Dragging wants instant anyway.
+      className="relative flex h-full w-[248px] shrink-0 flex-col border-r bg-surface-sunken md:w-[var(--sidebar-w)]"
+    >
+      <SidebarResizer
+        width={width}
+        onWidth={setWidth}
+        onCommit={persist}
+        dragging={dragging}
+        onDraggingChange={setDragging}
+      />
       <div className="flex h-[52px] items-center justify-between px-3.5">
         <Logo size="sm" />
         <div className="flex items-center gap-0.5">
@@ -283,23 +297,14 @@ export function Sidebar({
         )}
 
         <SectionLabel>Workspace</SectionLabel>
+        {/* One row. The admin panel lives inside Settings, under Instance —
+            the main nav is for conversations, not for the machine room. */}
         <NavRow
           href="/settings"
-          active={pathname.startsWith('/settings') && pathname !== '/settings/admin'}
+          active={pathname.startsWith('/settings')}
           icon={Settings}
           label="Settings"
         />
-        {/* The machine room earns its own row rather than hiding at the end of
-            the settings list — it is where you go when something is wrong, and
-            that is the worst moment to be hunting for it. */}
-        {showAdminPanel && (
-          <NavRow
-            href="/settings/admin"
-            active={pathname === '/settings/admin'}
-            icon={Activity}
-            label="Admin panel"
-          />
-        )}
       </nav>
 
       <div className="border-t p-1.5">

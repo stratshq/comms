@@ -85,7 +85,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               user={{ name: user.name, email: user.email, image: user.image }}
               counts={{ ...counts, pending }}
               inboxes={inboxList}
-              showAdminPanel={can(user, 'system.admin')}
               // ALL folders, sections included: a section groups the inbox
               // list AND has a sidebar row — the row is how you jump straight
               // to "just the verification codes" with a live count.
