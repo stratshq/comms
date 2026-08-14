@@ -441,9 +441,21 @@ export function MessageThread({
                   </span>
                 )}
 
+                {/**
+                 * Full width, with the side chosen by justification.
+                 *
+                 * This row used to be shrink-to-fit, which left the bubble's
+                 * `max-w-[min(78%,46ch)]` resolving its percentage against a
+                 * containing block whose width depended on the bubble itself.
+                 * Narrow bubbles were fine; ones that actually reached the cap
+                 * resolved against an indefinite width and landed on the wrong
+                 * side of the thread. `justify-end` reads correctly in both
+                 * directions — under `flex-row-reverse` the main axis is
+                 * mirrored, so it packs left.
+                 */}
                 <div
                   className={cn(
-                    'flex max-w-full items-center gap-1',
+                    'flex w-full items-center gap-1 justify-end',
                     isOutbound ? 'flex-row' : 'flex-row-reverse',
                   )}
                 >
