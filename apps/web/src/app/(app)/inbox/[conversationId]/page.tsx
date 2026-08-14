@@ -12,6 +12,7 @@ import {
   getThreadMedia,
   getIntroContext,
   getGroupParticipants,
+  myPinnedConversationIds,
 } from '@/server/queries';
 import { getSetting } from '@/server/settings';
 import { resolveSignature } from '@/server/signature';
@@ -57,6 +58,7 @@ export default async function ConversationPage({
     hoursSetting,
     signature,
     participants,
+    pinnedIds,
   ] = await Promise.all([
     getMessages(conversationId),
     listAgents(),
@@ -72,6 +74,7 @@ export default async function ConversationPage({
     getSetting<Partial<BusinessHours>>('business_hours'),
     resolveSignature(user.id, conversation.inboxId),
     conversation.isGroup ? getGroupParticipants(conversationId) : Promise.resolve([]),
+    myPinnedConversationIds(user.id),
   ]);
 
   // Tapbacks, typing indicators and edits all require the BlueBubbles Private
@@ -121,6 +124,7 @@ export default async function ConversationPage({
           name={contactName}
           status={conversation.status}
           muted={Boolean(conversation.mutedAt)}
+          pinned={pinnedIds.includes(conversation.id)}
         />
         {nudge && <NudgeBanner conversationId={conversation.id} nudge={nudge} />}
         <ThreadShell

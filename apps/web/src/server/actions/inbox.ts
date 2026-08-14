@@ -24,6 +24,7 @@ import { desc } from '@comms/db';
 import { db } from '@/server/db';
 import { requireUser, requireWriter } from '@/lib/session';
 import { getConnectionForInbox } from '@/server/queries';
+import { unpinClosedFor } from '@/server/actions/pins';
 import { appendSignature, resolveSignature } from '@/server/signature';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -350,6 +351,10 @@ export async function updateConversation(input: {
     }
   }
 
+  // Closing it IS dealing with it, so the pin has done its job — for whoever
+  // asked for that. See `unpinClosedFor`.
+  if (input.status === 'closed' && conv.status !== 'closed') await unpinClosedFor([conv.id]);
+
   await publishEvent({ type: 'conversation.updated', conversationId: conv.id, inboxId: conv.inboxId });
   revalidatePath('/inbox');
   revalidatePath(`/inbox/${conv.id}`);
@@ -398,6 +403,7 @@ export async function bulkUpdateConversations(
   if (Object.keys(set).length === 0) return { ok: true };
 
   await db.update(conversations).set(set).where(inArray(conversations.id, ids));
+  if (patch.status === 'closed') await unpinClosedFor(ids);
   revalidatePath('/inbox');
   return { ok: true };
 }

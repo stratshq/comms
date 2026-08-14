@@ -1,6 +1,7 @@
 import { pgTable, text, integer, boolean, jsonb, timestamp, index, pgEnum } from 'drizzle-orm/pg-core';
 import { genId, timestamps } from './_helpers.js';
 import { users } from './auth.js';
+import type { FolderQuery } from './query.js';
 
 /**
  * Where a folder appears. A sidebar row is navigation you go to; a section is
@@ -31,7 +32,23 @@ export interface ViewFilters {
   unreadOnly?: boolean;
   /** They opened your last message and never wrote back. */
   readNoReply?: boolean;
+  /** Only conversations the viewer pinned. */
+  pinnedOnly?: boolean;
+  /**
+   * A custom AND/OR condition set, ANDed with the flat fields above.
+   *
+   * The flat fields stay because they map one-to-one onto the filter bar,
+   * which is where most folders are born ("filter, then save"). The query is
+   * for the folders you sit down and design.
+   */
+  query?: FolderQuery;
   sort?: 'newest' | 'oldest' | 'priority';
+  /**
+   * Marks a folder as one of the built-in split-inbox sections, so the
+   * Workspace switches can find it again after it has been renamed or its
+   * rule edited. Not a filter — evaluators must ignore it.
+   */
+  splitKey?: 'otp' | 'automated' | 'unknown' | 'important';
 }
 
 /**

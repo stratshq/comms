@@ -54,11 +54,21 @@ export function FocusShell({
   queueLabel,
   ids,
   thread,
+  autoAdvance = true,
+  exitHref = '/inbox',
 }: {
   queueKey: string;
   queueLabel: string;
   ids: string[];
   thread: FocusThread | null;
+  /** Their preference: move to the next thread after a reply or a close. */
+  autoAdvance?: boolean;
+  /**
+   * Where Esc and the exit button go. Normally the inbox — but for someone
+   * whose inbox IS this screen, plain `/inbox` would bounce them straight
+   * back here, so that case passes the list's own URL instead.
+   */
+  exitHref?: string;
 }) {
   const router = useRouter();
   const index = thread ? ids.indexOf(thread.conversationId) : -1;
@@ -77,13 +87,25 @@ export function FocusShell({
     if (next) go(next);
     else {
       toast.success('Stack finished — nice work');
-      router.push('/inbox');
+      router.push(exitHref);
     }
-  }, [ids, index, go, router]);
+  }, [ids, index, go, router, exitHref]);
 
   const back = useCallback(() => {
     if (index > 0) go(ids[index - 1]);
   }, [ids, index, go]);
+
+  /**
+   * What happens after you act on the thread you're looking at.
+   *
+   * Advancing is the point of a stack, but it also means never seeing the
+   * message you just sent — so it's a preference. With it off, the screen
+   * stays put and j moves you on when you're ready.
+   */
+  const afterAction = useCallback(() => {
+    if (autoAdvance) advance();
+    else router.refresh();
+  }, [autoAdvance, advance, router]);
 
   const closeAndAdvance = useCallback(() => {
     if (!thread) return;
@@ -93,8 +115,8 @@ export function FocusShell({
       if (!res.ok) toast.error(res.error);
       else undoToast('Closed', () => updateConversation({ id, status: prev }));
     });
-    advance();
-  }, [thread, advance]);
+    afterAction();
+  }, [thread, afterAction]);
 
   // Focus mode owns the keyboard while it's up. The global shortcut listener
   // stands down on /focus (it navigates to /inbox routes), so this local
@@ -104,7 +126,7 @@ export function FocusShell({
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Escape' && !isTyping()) {
         e.preventDefault();
-        router.push('/inbox');
+        router.push(exitHref);
         return;
       }
       if (isTyping()) return;
@@ -124,14 +146,14 @@ export function FocusShell({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [advance, back, closeAndAdvance, router]);
+  }, [advance, back, closeAndAdvance, router, exitHref]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       {/* Minimal top strip: exit, queue name, progress, prev/next. */}
       <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-surface/80 px-3 backdrop-blur-xl">
         <Link
-          href="/inbox"
+          href={exitHref}
           className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           aria-label="Exit focus mode"
           title="Exit (Esc)"
@@ -205,7 +227,7 @@ export function FocusShell({
             businessHours={thread.businessHours}
             signaturePreview={thread.signaturePreview}
             viaInbox={thread.viaInbox}
-            onSent={advance}
+            onSent={afterAction}
           />
         </div>
       ) : (
@@ -219,7 +241,7 @@ export function FocusShell({
               Nothing left in {queueLabel.toLowerCase()}. That's the whole point of this screen.
             </p>
             <Button asChild className="mt-5">
-              <Link href="/inbox">Back to the inbox</Link>
+              <Link href={exitHref}>Back to the inbox</Link>
             </Button>
           </div>
         </div>

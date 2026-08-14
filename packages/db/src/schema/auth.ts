@@ -32,19 +32,44 @@ export interface UserPreferences {
     overrides?: Record<string, string[]>;
     enterSends?: boolean;
   };
+
+  // ---- How the inbox behaves, for this person only -------------------------
+  /**
+   * `default` is the two-pane inbox: a list beside the open thread.
+   * `fullscreen` opens straight into Focus mode — one conversation at a time,
+   * no list. The same account can want either on different days, so this is a
+   * preference and not a build-time choice.
+   */
+  inboxLayout?: 'default' | 'fullscreen';
+  /** In Focus mode, move to the next conversation after a reply is sent. */
+  focusAutoAdvance?: boolean;
+  /** Float pinned conversations to the top of every list. */
+  pinnedFirst?: boolean;
+  /** Unpin automatically when a conversation is closed. */
+  unpinOnDone?: boolean;
 }
 
-/** Defaults applied when a user has never touched their notification settings. */
+/** Defaults applied when a user has never touched their settings. */
 export const notificationDefaults = {
   notifyMentions: true,
   notificationSound: false,
+  inboxLayout: 'default',
+  // Advancing is the point of Focus mode — you work a stack, you don't sit on
+  // one thread. Off is for people who want to re-read what they just sent.
+  focusAutoAdvance: true,
+  pinnedFirst: true,
+  // A pin is "deal with this"; closing it IS dealing with it, so the pin has
+  // done its job. Off keeps pins as long-lived bookmarks instead.
+  unpinOnDone: true,
 } satisfies Omit<Required<UserPreferences>, 'keymap' | 'signature'>;
+
+export type ResolvedPreferences = Omit<Required<UserPreferences>, 'keymap' | 'signature'> &
+  Pick<UserPreferences, 'keymap' | 'signature'>;
 
 /** Read a user's preferences with the defaults filled in for anything unset. */
 export function resolvePreferences(
   preferences: UserPreferences | null | undefined,
-): Omit<Required<UserPreferences>, 'keymap' | 'signature'> &
-  Pick<UserPreferences, 'keymap' | 'signature'> {
+): ResolvedPreferences {
   return { ...notificationDefaults, ...(preferences ?? {}) };
 }
 

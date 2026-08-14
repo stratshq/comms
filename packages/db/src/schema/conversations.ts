@@ -118,6 +118,31 @@ export const conversationParticipants = pgTable(
   (cp) => [primaryKey({ columns: [cp.conversationId, cp.contactIdentityId] })],
 );
 
+/**
+ * A conversation someone pinned to the top of their list.
+ *
+ * Per USER, not per workspace: a pin is "this is what I am working on", and
+ * in a shared inbox one person's working set is not everyone's. The same
+ * reasoning as drafts — showing your colleague's priorities as your own
+ * would be worse than showing nothing.
+ */
+export const conversationPins = pgTable(
+  'conversation_pins',
+  {
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (p) => [
+    primaryKey({ columns: [p.conversationId, p.userId] }),
+    index('conversation_pins_user_idx').on(p.userId, p.createdAt),
+  ],
+);
+
 export const tags = pgTable('tags', {
   id: text('id').primaryKey().$defaultFn(genId('tag')),
   name: text('name').notNull().unique(),

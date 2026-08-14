@@ -38,8 +38,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    * filter bar understands has to appear here, or clicking the folder shows a
    * different set than its badge counted.
    */
-  const viewHref = (f: Record<string, unknown>) => {
+  const viewHref = (id: string, f: Record<string, unknown>) => {
     const p = new URLSearchParams();
+    // An and/or rule (or a pins-only folder) has no query-string spelling, so
+    // the link names the folder itself and the list pane applies the stored
+    // filters. Anything expressible still round-trips through real params, so
+    // the filter bar keeps showing what you are looking at.
+    if (f.query || f.pinnedOnly) {
+      p.set('view', id);
+      return `/inbox?${p.toString()}`;
+    }
     if (f.status && f.status !== 'active') p.set('status', String(f.status));
     if (f.assignee) p.set('assignee', String(f.assignee));
     if (f.kind) p.set('kind', String(f.kind));
@@ -91,7 +99,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               views={viewRows.map((v) => ({
                 id: v.id,
                 name: v.name,
-                href: viewHref(v.filters as Record<string, unknown>),
+                href: viewHref(v.id, v.filters as Record<string, unknown>),
                 count: v.count,
               }))}
             />

@@ -1,10 +1,12 @@
-import { requireUser } from '@/lib/session';
+import { resolvePreferences } from '@comms/db';
+import { requireDbUser } from '@/lib/session';
 import {
   listConversations,
   listInboxes,
   listTags,
   listAgents,
   listSavedViews,
+  myPinnedConversationIds,
 } from '@/server/queries';
 import { myDraftConversationIds } from '@/server/actions/drafts';
 import { ConversationListPane, type SectionFilters } from '@/components/inbox/conversation-list';
@@ -14,8 +16,9 @@ import { NewFolderDialog } from '@/components/inbox/new-folder';
 export const dynamic = 'force-dynamic';
 
 export default async function InboxLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
-  const [conversations, inboxRows, tagRows, agentRows, viewRows, draftIds] =
+  const user = await requireDbUser();
+  const prefs = resolvePreferences(user.preferences);
+  const [conversations, inboxRows, tagRows, agentRows, viewRows, draftIds, pinnedIds] =
     await Promise.all([
       // Load the working set once; the pane filters and sorts it client-side so
       // every filter change is instant.
@@ -25,6 +28,7 @@ export default async function InboxLayout({ children }: { children: React.ReactN
       listAgents(),
       listSavedViews(user.id),
       myDraftConversationIds(user.id),
+      myPinnedConversationIds(user.id),
     ]);
 
   return (
@@ -37,15 +41,17 @@ export default async function InboxLayout({ children }: { children: React.ReactN
         allTags={tagRows.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
         agents={agentRows.map((a) => ({ id: a.id, name: a.name, email: a.email }))}
         inboxes={inboxRows.map((i) => ({ id: i.id, name: i.name }))}
-        // Folders set to render inside the list rather than in the sidebar.
-        folders={viewRows
-          .filter((v) => v.display === 'section')
-          .map((v) => ({
-            id: v.id,
-            name: v.name,
-            filters: (v.filters ?? {}) as SectionFilters,
-          }))}
+        // Every folder, not just the sections: the pane needs the sidebar
+        // ones too, to resolve `?view=` for rules a URL cannot spell.
+        folders={viewRows.map((v) => ({
+          id: v.id,
+          name: v.name,
+          display: v.display,
+          filters: (v.filters ?? {}) as SectionFilters,
+        }))}
         draftConversationIds={draftIds}
+        pinnedConversationIds={pinnedIds}
+        pinnedFirst={prefs.pinnedFirst}
       />
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       <TagQuickPicker
@@ -54,6 +60,7 @@ export default async function InboxLayout({ children }: { children: React.ReactN
       <NewFolderDialog
         tags={tagRows.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
         inboxes={inboxRows.map((i) => ({ id: i.id, name: i.name }))}
+        agents={agentRows.map((a) => ({ id: a.id, name: a.name, email: a.email }))}
       />
     </div>
   );

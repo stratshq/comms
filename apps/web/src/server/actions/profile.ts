@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import { eq } from '@comms/db';
 import { users, type UserPreferences } from '@comms/db';
 import { db } from '@/server/db';
-import { requireUser, requireWriter } from '@/lib/session';
+import { requireWriter } from '@/lib/session';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -105,6 +105,41 @@ export async function updateNotificationPreferences(patch: UserPreferences): Pro
     .set({ preferences: { ...(row?.preferences ?? {}), ...patch } })
     .where(eq(users.id, me.id));
   revalidatePath('/settings/preferences');
+  return { ok: true };
+}
+
+/**
+ * Merge a patch into your own inbox settings.
+ *
+ * Same storage as the notification preferences — one `preferences` blob per
+ * user — but its own action so it can revalidate the inbox as well as the
+ * settings page. Layout and pin ordering are read while rendering the list,
+ * so a change that only refreshed /settings would appear not to have worked.
+ */
+export async function updateInboxPreferences(patch: {
+  inboxLayout?: 'default' | 'fullscreen';
+  focusAutoAdvance?: boolean;
+  pinnedFirst?: boolean;
+  unpinOnDone?: boolean;
+}): Promise<ActionResult> {
+  const me = await requireWriter();
+
+  if (patch.inboxLayout && patch.inboxLayout !== 'default' && patch.inboxLayout !== 'fullscreen') {
+    return { ok: false, error: 'Unknown layout.' };
+  }
+
+  const row = await db.query.users.findFirst({
+    where: eq(users.id, me.id),
+    columns: { preferences: true },
+  });
+
+  await db
+    .update(users)
+    .set({ preferences: { ...(row?.preferences ?? {}), ...patch } })
+    .where(eq(users.id, me.id));
+
+  revalidatePath('/settings/inbox');
+  revalidatePath('/inbox', 'layout');
   return { ok: true };
 }
 

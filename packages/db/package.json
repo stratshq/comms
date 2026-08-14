@@ -11,6 +11,10 @@
     "./schema": {
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
+    },
+    "./query": {
+      "types": "./dist/schema/query.d.ts",
+      "import": "./dist/schema/query.js"
     }
   },
   "main": "./dist/index.js",

@@ -1,4 +1,5 @@
 import { isAiConfigured } from '@comms/ai';
+import { resolvePreferences } from '@comms/db';
 import {
   getConversation,
   getMessages,
@@ -41,13 +42,26 @@ export default async function FocusPage({
   const user = await requireDbUser();
   const queueKey = queueParam && QUEUES[queueParam] ? queueParam : 'inbox';
   const queue = QUEUES[queueKey]!;
+  const prefs = resolvePreferences(user.preferences);
+  // Someone whose layout IS fullscreen gets bounced back here by /inbox, so
+  // their way out has to name the list explicitly. See the inbox page.
+  const exitHref = prefs.inboxLayout === 'fullscreen' ? '/inbox?list=1' : '/inbox';
 
   const rows = await listConversations({ ...queue.filter, currentUserId: user.id });
   const ids = rows.map((r) => r.id);
   const currentId = c && ids.includes(c) ? c : ids[0];
 
   if (!currentId) {
-    return <FocusShell queueKey={queueKey} queueLabel={queue.label} ids={[]} thread={null} />;
+    return (
+      <FocusShell
+        queueKey={queueKey}
+        queueLabel={queue.label}
+        ids={[]}
+        thread={null}
+        autoAdvance={prefs.focusAutoAdvance}
+        exitHref={exitHref}
+      />
+    );
   }
 
   const [conversation, messages, macros, inboxes, connection, draft, sharedDrafts, hoursSetting] =
@@ -62,7 +76,16 @@ export default async function FocusPage({
       getSetting<Partial<BusinessHours>>('business_hours'),
     ]);
   if (!conversation) {
-    return <FocusShell queueKey={queueKey} queueLabel={queue.label} ids={[]} thread={null} />;
+    return (
+      <FocusShell
+        queueKey={queueKey}
+        queueLabel={queue.label}
+        ids={[]}
+        thread={null}
+        autoAdvance={prefs.focusAutoAdvance}
+        exitHref={exitHref}
+      />
+    );
   }
 
   const signature = await resolveSignature(user.id, conversation.inboxId);
@@ -73,6 +96,8 @@ export default async function FocusPage({
       queueKey={queueKey}
       queueLabel={queue.label}
       ids={ids}
+      autoAdvance={prefs.focusAutoAdvance}
+      exitHref={exitHref}
       thread={{
         conversationId: conversation.id,
         number: conversation.number,

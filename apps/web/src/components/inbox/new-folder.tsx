@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { KeyRound, Bot, UserRound, Folder } from 'lucide-react';
+import { KeyRound, Bot, UserRound, Folder, SlidersHorizontal, Star } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createSavedView } from '@/server/actions/views';
+import { QueryBuilder } from '@/components/inbox/query-builder';
 import type { ViewFilters } from '@comms/db';
+import { describeQuery, sanitizeQuery, type FolderQuery } from '@comms/db/query';
 import { cn } from '@/lib/utils';
 
 /**
@@ -35,7 +37,11 @@ type SourceKind =
   | { type: 'tag'; value: string }
   | { type: 'inbox'; value: string }
   | { type: 'words'; value: string }
+  | { type: 'query'; value: FolderQuery }
   | null;
+
+/** What the advanced builder starts with — one empty row, not zero. */
+const EMPTY_QUERY: FolderQuery = { match: 'all', conditions: [{ field: 'kind', operator: 'is', value: '' }] };
 
 /** One-tap starting points — the folders nearly every workspace wants. */
 const PRESETS: {
@@ -70,14 +76,39 @@ const PRESETS: {
     display: 'section',
     hint: 'Nobody you know yet',
   },
+  {
+    key: 'important',
+    name: 'Important',
+    icon: Star,
+    // The split every inbox starts with: what a person sent you, at a
+    // priority someone raised, or a thread you pinned. Everything it does not
+    // claim falls into the list's "Other" section underneath it.
+    source: {
+      type: 'query',
+      value: {
+        match: 'any',
+        conditions: [
+          { field: 'priority', operator: 'is', value: 'urgent' },
+          { field: 'priority', operator: 'is', value: 'high' },
+          { field: 'pinned', operator: 'is', value: 'true' },
+          { field: 'assignee', operator: 'is', value: 'me' },
+        ],
+      },
+    },
+    display: 'section',
+    hint: 'Urgent, pinned, or yours',
+  },
 ];
 
 export function NewFolderDialog({
   tags,
   inboxes,
+  agents = [],
 }: {
   tags: { id: string; name: string; color: string }[];
   inboxes: { id: string; name: string }[];
+  /** Offered as assignee values in the advanced builder. */
+  agents?: { id: string; name: string | null; email: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -113,6 +144,8 @@ export function NewFolderDialog({
             .map((w) => w.trim())
             .filter(Boolean),
         };
+      case 'query':
+        return { query: s.value };
     }
   }
 
@@ -125,6 +158,13 @@ export function NewFolderDialog({
     const filters = filtersFor(finalSource);
     if (finalSource.type === 'words' && !filters.bodyContains?.length) {
       toast.error('Add at least one word to match.');
+      return;
+    }
+    // A half-filled condition is dropped by `sanitizeQuery`, which would turn
+    // "urgent and unread" into a folder that quietly claims the whole inbox.
+    // Better to say so than to create it.
+    if (finalSource.type === 'query' && !sanitizeQuery(finalSource.value)) {
+      toast.error('Give every condition a value.');
       return;
     }
 
@@ -238,6 +278,39 @@ export function NewFolderDialog({
               placeholder="…or words in the message: invoice, receipt, refund"
               className="mt-1 text-[12.5px]"
             />
+
+            {/* The advanced builder stays folded away. One chip or one word
+                covers most folders, and a grid of dropdowns sitting open
+                makes the simple case look like the hard one. */}
+            {source?.type === 'query' ? (
+              <div className="mt-2 rounded-lg border bg-secondary/40 p-2.5">
+                <QueryBuilder
+                  query={source.value}
+                  onChange={(q) => setSource({ type: 'query', value: q })}
+                  tags={tags}
+                  inboxes={inboxes}
+                  agents={agents}
+                />
+                {sanitizeQuery(source.value) && (
+                  <p className="mt-2 border-t pt-2 text-[11px] text-muted-foreground">
+                    Contains conversations where{' '}
+                    <span className="text-foreground">
+                      {describeQuery(sanitizeQuery(source.value)!)}
+                    </span>
+                    .
+                  </p>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSource({ type: 'query', value: EMPTY_QUERY })}
+                className="mt-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <SlidersHorizontal className="h-3 w-3" />
+                …or build a rule with and / or
+              </button>
+            )}
           </div>
 
           <div className="space-y-1.5">

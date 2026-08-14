@@ -1,11 +1,32 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { MessagesSquare, Plug } from 'lucide-react';
+import { resolvePreferences } from '@comms/db';
 import { listInboxes } from '@/server/queries';
+import { requireDbUser } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 
 export const dynamic = 'force-dynamic';
 
-export default async function InboxEmptyPage() {
+export default async function InboxEmptyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ list?: string }>;
+}) {
+  const [{ list }, user] = await Promise.all([searchParams, requireDbUser()]);
+
+  /**
+   * Fullscreen layout: /inbox with nothing open means "start working", and
+   * for these people that is Focus, not a placeholder pane.
+   *
+   * `?list=1` is the way back — it's what Focus's exit link points at, so
+   * leaving Focus doesn't immediately re-enter it. Only the empty state
+   * redirects; an actual conversation URL always opens the thread.
+   */
+  if (list !== '1' && resolvePreferences(user.preferences).inboxLayout === 'fullscreen') {
+    redirect('/focus');
+  }
+
   const inboxes = await listInboxes();
   const hasConnection = inboxes.some((i) => i.connections.length > 0);
 

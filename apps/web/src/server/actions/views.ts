@@ -81,23 +81,63 @@ export async function updateSavedView(input: {
 }
 
 /** The split-inbox axes an admin can switch on and off from Workspace settings. */
-const SPLIT_KINDS = ['otp', 'automated', 'unknown'] as const;
+const SPLIT_KINDS = ['important', 'otp', 'automated', 'unknown'] as const;
 type SplitKind = (typeof SPLIT_KINDS)[number];
 
-const SPLIT_DEFAULTS: Record<SplitKind, { name: string; icon: string }> = {
-  otp: { name: 'Verification codes', icon: 'KeyRound' },
-  automated: { name: 'Automated', icon: 'Bot' },
-  unknown: { name: 'Unknown numbers', icon: 'UserRound' },
+const SPLIT_DEFAULTS: Record<SplitKind, { name: string; icon: string; filters: ViewFilters }> = {
+  important: {
+    name: 'Important',
+    icon: 'Star',
+    // Urgent or high, pinned, or assigned to whoever is looking. `assignee:
+    // 'me'` resolves per viewer, so one shared folder means the right thing
+    // for each person reading it.
+    filters: {
+      splitKey: 'important',
+      query: {
+        match: 'any',
+        conditions: [
+          { field: 'priority', operator: 'is', value: 'urgent' },
+          { field: 'priority', operator: 'is', value: 'high' },
+          { field: 'pinned', operator: 'is', value: 'true' },
+          { field: 'assignee', operator: 'is', value: 'me' },
+        ],
+      },
+    },
+  },
+  otp: { name: 'Verification codes', icon: 'KeyRound', filters: { kind: 'otp' } },
+  automated: { name: 'Automated', icon: 'Bot', filters: { kind: 'automated' } },
+  unknown: { name: 'Unknown numbers', icon: 'UserRound', filters: { kind: 'unknown' } },
 };
 
-/** Which split-inbox folders currently exist (shared, filtered on that kind). */
+/**
+ * Is this shared folder one of the built-in splits?
+ *
+ * `splitKey` is the reliable answer and what new folders carry. The `kind`
+ * fallback is for folders seeded before that marker existed — without it,
+ * every one of those installs would show its switches off while the sections
+ * were plainly there in the inbox.
+ */
+function splitKindOf(filters: ViewFilters | null | undefined): SplitKind | null {
+  if (filters?.splitKey && (SPLIT_KINDS as readonly string[]).includes(filters.splitKey)) {
+    return filters.splitKey;
+  }
+  const kind = filters?.kind;
+  return kind === 'otp' || kind === 'automated' || kind === 'unknown' ? kind : null;
+}
+
+/** Which split-inbox folders currently exist. */
 export async function getSplitInboxState(): Promise<Record<SplitKind, boolean>> {
   await requireUser();
   const shared = await db.query.savedViews.findMany({ where: eq(savedViews.isShared, true) });
-  const state = { otp: false, automated: false, unknown: false };
+  const state: Record<SplitKind, boolean> = {
+    important: false,
+    otp: false,
+    automated: false,
+    unknown: false,
+  };
   for (const v of shared) {
-    const kind = v.filters?.kind as SplitKind | undefined;
-    if (kind && kind in state) state[kind] = true;
+    const key = splitKindOf(v.filters);
+    if (key) state[key] = true;
   }
   return state;
 }
@@ -115,7 +155,7 @@ export async function setSplitInboxFolder(kind: string, enabled: boolean): Promi
   const k = kind as SplitKind;
 
   const shared = await db.query.savedViews.findMany({ where: eq(savedViews.isShared, true) });
-  const existing = shared.filter((v) => v.filters?.kind === k);
+  const existing = shared.filter((v) => splitKindOf(v.filters) === k);
 
   if (enabled && existing.length === 0) {
     await db.insert(savedViews).values({
@@ -124,7 +164,9 @@ export async function setSplitInboxFolder(kind: string, enabled: boolean): Promi
       display: 'section',
       isShared: true,
       ownerUserId: null,
-      filters: { kind: k, status: 'active' },
+      // Important leads the list; the machine-traffic sections follow it.
+      sortOrder: SPLIT_KINDS.indexOf(k),
+      filters: { ...SPLIT_DEFAULTS[k].filters, splitKey: k, status: 'active' },
     });
   } else if (!enabled) {
     for (const v of existing) {

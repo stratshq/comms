@@ -6,6 +6,7 @@ import {
   contacts,
   conversations,
   conversationParticipants,
+  conversationPins,
   drafts,
   conversationTags,
   messages,
@@ -16,6 +17,9 @@ import {
   macros,
   automationRules,
   savedViews,
+  sanitizeQuery,
+  type QueryCondition,
+  type FolderQuery,
 } from '@comms/db';
 import { db } from '@/server/db';
 import { INBOX_STATUSES } from '@/lib/conversation-folder';
@@ -50,7 +54,13 @@ export type ConversationFilter = {
   readNoReply?: boolean;
   /** Conversations containing a photo, any attachment, a voice memo, or a link. */
   has?: 'photo' | 'attachment' | 'voice' | 'link';
+  /** Only conversations the viewer has pinned. */
+  pinnedOnly?: boolean;
+  /** A custom AND/OR condition set, ANDed with the flat fields above. */
+  query?: FolderQuery;
   sort?: 'newest' | 'oldest' | 'priority';
+  /** Float the viewer's pinned conversations to the top of the list. */
+  pinnedFirst?: boolean;
   search?: string;
   currentUserId?: string;
 };
@@ -124,6 +134,88 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/**
+ * One folder condition as SQL.
+ *
+ * The client-side twin lives in `@/lib/folder-query` and must stay in step —
+ * a folder whose badge counts differently from its contents is exactly the
+ * bug this pair exists to avoid, so both are driven by the same shared
+ * condition shape and covered by the same tests.
+ */
+function conditionSql(c: QueryCondition, currentUserId?: string) {
+  const negate = (positive: ReturnType<typeof sql>) => sql`not (${positive})`;
+  const yes = c.value !== 'false';
+
+  switch (c.field) {
+    case 'kind': {
+      const base = sql`${conversations.kind} = ${c.value}`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'priority': {
+      const base = sql`${conversations.priority} = ${c.value}`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'status': {
+      const base = sql`${conversations.status} = ${c.value}`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'inbox': {
+      const base = sql`${conversations.inboxId} = ${c.value}`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'assignee': {
+      const base =
+        c.value === 'unassigned'
+          ? sql`${conversations.assigneeId} is null`
+          : sql`${conversations.assigneeId} = ${c.value === 'me' ? (currentUserId ?? '') : c.value}`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'tag': {
+      const base = sql`exists (
+        select 1 from ${conversationTags} ct
+        where ct.conversation_id = ${conversations.id} and ct.tag_id = ${c.value}
+      )`;
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'words': {
+      const like = `%${escapeLike(c.value)}%`;
+      const base = sql`(${conversations.lastMessagePreview} ilike ${like} escape '\\' or ${conversations.title} ilike ${like} escape '\\')`;
+      return c.operator === 'not_contains' ? negate(base) : base;
+    }
+    case 'has': {
+      const base = hasMediaCondition(c.value as 'photo' | 'attachment' | 'voice' | 'link');
+      return c.operator === 'is_not' ? negate(base) : base;
+    }
+    case 'unread': {
+      const base = sql`${conversations.unreadCount} > 0`;
+      return yes ? base : negate(base);
+    }
+    case 'seen': {
+      return yes ? READ_NO_REPLY : negate(READ_NO_REPLY);
+    }
+    case 'muted': {
+      const base = sql`${conversations.mutedAt} is not null`;
+      return yes ? base : negate(base);
+    }
+    case 'sla': {
+      const base = sql`${conversations.slaBreachedAt} is not null`;
+      return yes ? base : negate(base);
+    }
+    case 'pinned': {
+      const base = currentUserId
+        ? sql`exists (
+            select 1 from ${conversationPins} p
+            where p.conversation_id = ${conversations.id} and p.user_id = ${currentUserId}
+          )`
+        : sql`false`;
+      return yes ? base : negate(base);
+    }
+    default:
+      // An unknown field must not read as "no restriction".
+      return sql`false`;
+  }
+}
+
 /** SQL conditions shared by the list query and the per-view counts. */
 function buildConversationWhere(filter: ConversationFilter) {
   const where = [];
@@ -189,6 +281,25 @@ function buildConversationWhere(filter: ConversationFilter) {
     }
   }
 
+  if (filter.pinnedOnly) {
+    where.push(
+      filter.currentUserId
+        ? sql`exists (
+            select 1 from ${conversationPins} p
+            where p.conversation_id = ${conversations.id} and p.user_id = ${filter.currentUserId}
+          )`
+        : // Pins are per person; with nobody in context this matches nothing
+          // rather than everything, same rule as the drafts folder.
+          sql`false`,
+    );
+  }
+
+  const query = sanitizeQuery(filter.query);
+  if (query) {
+    const clauses = query.conditions.map((c) => conditionSql(c, filter.currentUserId));
+    where.push(sql`(${sql.join(clauses, query.match === 'any' ? sql` or ` : sql` and `)})`);
+  }
+
   if (filter.readNoReply) where.push(READ_NO_REPLY);
   if (filter.has) where.push(hasMediaCondition(filter.has));
   if (filter.slaBreached) where.push(sql`${conversations.slaBreachedAt} is not null`);
@@ -216,6 +327,22 @@ function buildConversationWhere(filter: ConversationFilter) {
   return where;
 }
 
+/**
+ * True when the viewer has pinned this conversation.
+ *
+ * Pins are per person, so this is a correlated subquery rather than a column
+ * — two people looking at the same shared inbox see different things at the
+ * top, which is the entire point of a pin.
+ */
+function pinnedFor(userId: string | undefined) {
+  return userId
+    ? sql<boolean>`exists (
+        select 1 from ${conversationPins} p
+        where p.conversation_id = ${conversations.id} and p.user_id = ${userId}
+      )`
+    : sql<boolean>`false`;
+}
+
 function orderFor(sort: ConversationFilter['sort'], status?: ConversationFilter['status']) {
   // The question you have in the snoozed view is "what comes back next", not
   // "what was said most recently".
@@ -236,10 +363,14 @@ function orderFor(sort: ConversationFilter['sort'], status?: ConversationFilter[
 
 export async function listConversations(filter: ConversationFilter = {}) {
   const where = buildConversationWhere(filter);
+  const pinned = pinnedFor(filter.currentUserId);
+  const order = orderFor(filter.sort, filter.status);
 
   return db.query.conversations.findMany({
     where: where.length ? and(...where) : undefined,
-    orderBy: orderFor(filter.sort, filter.status),
+    // Pinned rows sort ahead of everything else but keep their normal order
+    // among themselves — a pin promotes a thread, it doesn't freeze it.
+    orderBy: filter.pinnedFirst && filter.currentUserId ? [desc(pinned), ...order] : order,
     limit: 100,
     // Carried on every row so the client-side filter can apply the same rule
     // the server does without a second round trip.
@@ -339,6 +470,22 @@ export async function listAgents() {
 
 export async function listTags() {
   return db.query.tags.findMany({ orderBy: [asc(tags.name)] });
+}
+
+/**
+ * The ids one person has pinned.
+ *
+ * Sent to the list pane as a set rather than joined onto each row: the pane
+ * already holds the whole working set client-side, so a pin toggle only has
+ * to move an id in and out of a set instead of refetching every conversation.
+ */
+export async function myPinnedConversationIds(userId: string): Promise<string[]> {
+  const rows = await db.query.conversationPins.findMany({
+    where: eq(conversationPins.userId, userId),
+    columns: { conversationId: true },
+    orderBy: [desc(conversationPins.createdAt)],
+  });
+  return rows.map((r) => r.conversationId);
 }
 
 export async function listMacros() {

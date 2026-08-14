@@ -3,11 +3,17 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Bot, KeyRound, UserRound } from 'lucide-react';
+import { Bot, KeyRound, Star, UserRound } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { setSplitInboxFolder } from '@/server/actions/views';
 
 const SECTIONS = [
+  {
+    kind: 'important',
+    label: 'Important',
+    hint: 'Urgent or high priority, pinned, or assigned to you. Everything else falls under "Other".',
+    icon: Star,
+  },
   {
     kind: 'otp',
     label: 'Verification codes',
@@ -29,7 +35,7 @@ const SECTIONS = [
 ] as const;
 
 /**
- * The split inbox, as three switches. Each one IS a shared folder — on
+ * The split inbox, as four switches. Each one IS a shared folder — on
  * creates it, off deletes it — so this card and the inbox can never tell
  * different stories about what's grouped.
  */

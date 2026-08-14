@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, RotateCcw, Clock, ChevronLeft, PanelRight, Bell, BellOff } from 'lucide-react';
+import { Check, RotateCcw, Clock, ChevronLeft, PanelRight, Bell, BellOff, Pin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { updateConversation, setFollowUp, setMuted } from '@/server/actions/inbox';
+import { setPinned, togglePin } from '@/server/actions/pins';
 import { PresenceBar } from '@/components/inbox/presence-bar';
 import { SNOOZE_PRESETS, FOLLOW_UP_PRESETS } from '@/lib/snooze';
 import { CustomTimePicker } from '@/components/inbox/time-picker';
@@ -37,21 +38,26 @@ export function ConversationHeader({
   name,
   status: serverStatus,
   muted: serverMuted = false,
+  pinned: serverPinned = false,
 }: {
   conversationId: string;
   number: number;
   name: string;
   status: string;
   muted?: boolean;
+  /** Whether the signed-in user pinned this thread. Personal, not shared. */
+  pinned?: boolean;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
   // Optimistic status: flips instantly on click, server props reconcile later.
   const [status, setStatus] = useState(serverStatus);
   const [muted, setMutedLocal] = useState(serverMuted);
+  const [pinned, setPinnedLocal] = useState(serverPinned);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   useEffect(() => setStatus(serverStatus), [serverStatus]);
   useEffect(() => setMutedLocal(serverMuted), [serverMuted]);
+  useEffect(() => setPinnedLocal(serverPinned), [serverPinned]);
 
   // The global `s` shortcut opens the snooze menu for the open conversation.
   useEffect(() => {
@@ -77,6 +83,23 @@ export function ConversationHeader({
       } else {
         router.refresh();
       }
+    });
+  }
+
+  function togglePinned() {
+    const next = !pinned;
+    setPinnedLocal(next);
+    start(async () => {
+      const res = await togglePin(conversationId);
+      if (!res.ok) {
+        setPinnedLocal(!next);
+        toast.error(res.error);
+        return;
+      }
+      undoToast(next ? 'Pinned to the top of your inbox' : 'Unpinned', () =>
+        setPinned(conversationId, !next),
+      { onUndone: () => { setPinnedLocal(!next); router.refresh(); } });
+      router.refresh();
     });
   }
 
@@ -194,6 +217,22 @@ export function ConversationHeader({
         <div className="hidden sm:block">
           <PresenceBar conversationId={conversationId} />
         </div>
+
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={togglePinned}
+          aria-label={pinned ? 'Unpin conversation' : 'Pin conversation'}
+          aria-pressed={pinned}
+          title={
+            pinned
+              ? 'Unpin — back to normal order'
+              : 'Pin — keeps this at the top of your inbox (yours only)'
+          }
+          className={cn(pinned && 'text-brand')}
+        >
+          <Pin className={cn('h-3.5 w-3.5', pinned && 'fill-current')} />
+        </Button>
 
         <Button
           size="icon-sm"

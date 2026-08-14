@@ -19,6 +19,7 @@ import {
   Folder as FolderIcon,
   KeyRound,
   Copy,
+  Pin,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -29,8 +30,11 @@ import { AnimatePresence, motion } from '@/components/ui/motion';
 // Subpath import, not the barrel: the barrel pulls BullMQ and ioredis, which
 // cannot be bundled for the browser.
 import { extractOtpCode } from '@comms/core/correspondent';
+import type { FolderQuery } from '@comms/db/query';
 import { bulkUpdateConversations } from '@/server/actions/inbox';
 import { dissolveBundle, restoreBundle } from '@/server/actions/bundles';
+import { setPinned, togglePin } from '@/server/actions/pins';
+import { matchesQuery } from '@/lib/folder-query';
 import { undoToast } from '@/lib/undo';
 import { FilterBar } from '@/components/inbox/filter-bar';
 import { setVisibleConversationIds } from '@/lib/inbox-nav';
@@ -68,8 +72,13 @@ export type SectionFilters = {
   has?: string;
   bodyContains?: string[];
   slaBreached?: boolean;
+  pinnedOnly?: boolean;
+  /** The AND/OR condition set, evaluated by `matchesQuery`. */
+  query?: FolderQuery;
   /** Ordering, not membership — present in stored filters, ignored here. */
   sort?: string;
+  /** Bookkeeping for the Workspace switches — not a filter. */
+  splitKey?: string;
 };
 
 /**
@@ -89,8 +98,82 @@ const SECTION_KEYS = new Set([
   'has',
   'bodyContains',
   'slaBreached',
+  'pinnedOnly',
+  'query',
   'sort',
+  'splitKey',
 ]);
+
+/**
+ * Does one conversation belong in a folder?
+ *
+ * The single client-side implementation, used both for the sections inside
+ * the list and for a sidebar folder opened via `?view=`. One function because
+ * two would drift, and a folder that counts differently from how it renders
+ * is the failure this whole layer is arranged to avoid — see the SQL twin in
+ * `buildConversationWhere`.
+ */
+function matchesViewFilters(
+  f: SectionFilters,
+  c: ConversationListItem,
+  ctx: { currentUserId: string; draftIds: Set<string>; pinnedIds: Set<string> },
+): boolean {
+  if (f.kind && c.kind !== f.kind) return false;
+  if (f.inboxId && c.inboxId !== f.inboxId) return false;
+  if (f.assignee === 'me' && c.assigneeId !== ctx.currentUserId) return false;
+  else if (f.assignee === 'unassigned' && c.assigneeId) return false;
+  // A folder can name a specific teammate, not just me/unassigned.
+  else if (f.assignee && f.assignee !== 'me' && f.assignee !== 'unassigned') {
+    if (c.assigneeId !== f.assignee) return false;
+  }
+  if (f.priorityIn?.length && !f.priorityIn.includes(c.priority)) return false;
+  if (f.unreadOnly && c.unreadCount === 0) return false;
+  if (f.readNoReply && !c.readNoReply) return false;
+  if (f.slaBreached && !c.slaBreachedAt) return false;
+  // Folders default to the inbox; a stored status narrows further.
+  if (f.status && !matchesFolder(c.status, f.status, ctx.draftIds.has(c.id))) return false;
+  if (f.has) {
+    const present =
+      f.has === 'photo'
+        ? c.hasPhoto
+        : f.has === 'voice'
+          ? c.hasVoice
+          : f.has === 'link'
+            ? c.hasLink
+            : c.hasAttachment;
+    if (!present) return false;
+  }
+  // Same rule as the SQL: latest message + title.
+  if (f.bodyContains?.length) {
+    const hay = `${c.lastMessagePreview ?? ''} ${c.title ?? ''}`.toLowerCase();
+    if (!f.bodyContains.some((w) => hay.includes(w.toLowerCase()))) return false;
+  }
+  if (f.tagIds?.length) {
+    const ids = new Set(c.tags?.map((t) => t.tag.id) ?? []);
+    if (!f.tagIds.every((id) => ids.has(id))) return false;
+  }
+  if (f.pinnedOnly && !ctx.pinnedIds.has(c.id)) return false;
+  // The custom condition set. Same evaluator the badge count uses on the
+  // server side — see `@/lib/folder-query`.
+  if (
+    f.query &&
+    !matchesQuery(
+      f.query,
+      { ...c, pinned: ctx.pinnedIds.has(c.id), tagIds: c.tags?.map((t) => t.tag.id) ?? [] },
+      { currentUserId: ctx.currentUserId },
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** True when a folder's filters are all ones the predicate above implements. */
+function isRenderableFolder(f: SectionFilters): boolean {
+  return !Object.entries(f).some(
+    ([k, v]) => !SECTION_KEYS.has(k) && v !== undefined && v !== null,
+  );
+}
 
 export function ConversationListPane({
   conversations,
@@ -101,10 +184,16 @@ export function ConversationListPane({
   inboxes = [],
   folders = [],
   draftConversationIds = [],
+  pinnedConversationIds = [],
+  pinnedFirst = true,
 }: {
   conversations: ConversationListItem[];
   currentUserId: string;
   currentUserName: string;
+  /** Conversations this user pinned. Personal — see `togglePin`. */
+  pinnedConversationIds?: string[];
+  /** Their preference for whether pins float to the top. */
+  pinnedFirst?: boolean;
   /** Conversations where the signed-in user has unsent text. */
   draftConversationIds?: string[];
   /** When multiple numbers are connected, show which inbox each conversation belongs to. */
@@ -112,13 +201,61 @@ export function ConversationListPane({
   allTags?: { id: string; name: string; color: string }[];
   agents?: { id: string; name: string | null; email: string }[];
   inboxes?: { id: string; name: string }[];
-  /** Folders set to render as sections inside this list (the split inbox). */
-  folders?: { id: string; name: string; filters: SectionFilters }[];
+  /**
+   * Every folder visible to this user, sections and sidebar rows alike.
+   * Sections group the list; sidebar rows are looked up here by `?view=`,
+   * which is how a folder whose rule has no URL spelling still opens.
+   */
+  folders?: { id: string; name: string; display: 'sidebar' | 'section'; filters: SectionFilters }[];
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const draftIds = useMemo(() => new Set(draftConversationIds), [draftConversationIds]);
+
+  // Pins are held locally so a click reorders the list on the same frame the
+  // pointer goes down; the server action reconciles behind it. Re-seeded when
+  // the server sends a new set, which is what makes another tab's pin show up.
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(
+    () => new Set(pinnedConversationIds),
+  );
+  useEffect(() => {
+    setPinnedIds(new Set(pinnedConversationIds));
+  }, [pinnedConversationIds.join(',')]);
+
+  function pin(id: string, name: string) {
+    const wasPinned = pinnedIds.has(id);
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (wasPinned) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    void togglePin(id).then((res) => {
+      if (!res.ok) {
+        // Put the row back where it was rather than leaving the list showing
+        // an order the server disagrees with.
+        setPinnedIds((prev) => {
+          const next = new Set(prev);
+          if (wasPinned) next.add(id);
+          else next.delete(id);
+          return next;
+        });
+        toast.error(res.error);
+        return;
+      }
+      undoToast(wasPinned ? `Unpinned ${name}` : `Pinned ${name}`, async () => {
+        setPinnedIds((prev) => {
+          const next = new Set(prev);
+          if (wasPinned) next.add(id);
+          else next.delete(id);
+          return next;
+        });
+        return setPinned(id, wasPinned);
+      });
+    });
+  }
+
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPending, startBulk] = useTransition();
@@ -181,12 +318,32 @@ export function ConversationListPane({
   const sort = searchParams.get('sort') ?? 'newest';
   const activeId = pathname.startsWith('/inbox/') ? pathname.split('/inbox/')[1] : null;
 
+  /**
+   * A folder opened from the sidebar.
+   *
+   * Most folders round-trip through ordinary filter params, so the filter bar
+   * shows what you're looking at. A rule with and/or in it has no spelling in
+   * a query string, so those folders link to `?view=<id>` and are applied
+   * here instead — by the same predicate the sections use, against the same
+   * stored filters the badge was counted from.
+   */
+  const viewId = searchParams.get('view');
+  const activeView = viewId ? folders.find((f) => f.id === viewId) : undefined;
+
   // Filtering and sorting run client-side against the loaded working set so
   // every filter change is instant (no server round-trip). Saved-view badge
   // counts come from SQL, which is what keeps them accurate beyond this window.
   const filtered = useMemo(() => {
     const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
     const rows = conversations.filter((c) => {
+      if (activeView) {
+        // Unrenderable here means unevaluable, and an unevaluable folder shows
+        // nothing rather than everything.
+        if (!isRenderableFolder(activeView.filters)) return false;
+        if (!matchesViewFilters(activeView.filters, c, { currentUserId, draftIds, pinnedIds })) {
+          return false;
+        }
+      }
       if (inboxFilter && c.inboxId !== inboxFilter) return false;
       if (kindFilter && c.kind !== kindFilter) return false;
       // Same rule as the SQL in buildConversationWhere — preview + title, so
@@ -250,10 +407,23 @@ export function ConversationListPane({
       );
     else rows.sort((a, b) => time(b) - time(a));
 
+    // Pins float, they don't freeze: a pinned row keeps its place relative to
+    // the other pinned rows, so a pinned thread that just got a reply still
+    // rises above one that went quiet. A stable partition, not a re-sort.
+    if (pinnedFirst && pinnedIds.size > 0) {
+      const pinnedRows = rows.filter((c) => pinnedIds.has(c.id));
+      if (pinnedRows.length > 0 && pinnedRows.length < rows.length) {
+        return [...pinnedRows, ...rows.filter((c) => !pinnedIds.has(c.id))];
+      }
+    }
+
     return rows;
   }, [
     conversations,
     draftIds,
+    pinnedFirst,
+    pinnedIds,
+    activeView,
     assignee,
     statusFilter,
     inboxFilter,
@@ -280,7 +450,9 @@ export function ConversationListPane({
     setGrouping(window.localStorage.getItem('comms:bundle-group') !== '0');
   }, []);
 
-  const canGroup = statusFilter === 'active' && !query;
+  // Standing inside one folder, the other folders' headers are noise — the
+  // list is already the answer to "what's in here".
+  const canGroup = statusFilter === 'active' && !query && !activeView;
 
   /**
    * Folder sections — the split inbox.
@@ -296,59 +468,23 @@ export function ConversationListPane({
     const out: { id: string; name: string; rows: typeof filtered }[] = [];
 
     for (const folder of folders) {
+      if (folder.display !== 'section') continue;
       const f = folder.filters ?? {};
 
       // Fail closed. A key the predicate cannot evaluate would otherwise be
       // treated as no restriction, and the folder would swallow the inbox.
-      const unhandled = Object.entries(f).filter(
-        ([k, v]) => !SECTION_KEYS.has(k) && v !== undefined && v !== null,
-      );
-      if (unhandled.length > 0) continue;
+      if (!isRenderableFolder(f)) continue;
 
       const rows = filtered.filter((c) => {
         if (claimed.has(c.id)) return false;
-        if (f.kind && c.kind !== f.kind) return false;
-        if (f.inboxId && c.inboxId !== f.inboxId) return false;
-        if (f.assignee === 'me' && c.assigneeId !== currentUserId) return false;
-        else if (f.assignee === 'unassigned' && c.assigneeId) return false;
-        // A folder can name a specific teammate, not just me/unassigned.
-        else if (f.assignee && f.assignee !== 'me' && f.assignee !== 'unassigned') {
-          if (c.assigneeId !== f.assignee) return false;
-        }
-        if (f.priorityIn?.length && !f.priorityIn.includes(c.priority)) return false;
-        if (f.unreadOnly && c.unreadCount === 0) return false;
-        if (f.readNoReply && !c.readNoReply) return false;
-        if (f.slaBreached && !c.slaBreachedAt) return false;
-        // Folders default to the inbox; a stored status narrows further.
-        if (f.status && !matchesFolder(c.status, f.status, draftIds.has(c.id))) return false;
-        if (f.has) {
-          const present =
-            f.has === 'photo'
-              ? c.hasPhoto
-              : f.has === 'voice'
-                ? c.hasVoice
-                : f.has === 'link'
-                  ? c.hasLink
-                  : c.hasAttachment;
-          if (!present) return false;
-        }
-        // Same rule as the SQL: latest message + title.
-        if (f.bodyContains?.length) {
-          const hay = `${c.lastMessagePreview ?? ''} ${c.title ?? ''}`.toLowerCase();
-          if (!f.bodyContains.some((w) => hay.includes(w.toLowerCase()))) return false;
-        }
-        if (f.tagIds?.length) {
-          const ids = new Set(c.tags?.map((t) => t.tag.id) ?? []);
-          if (!f.tagIds.every((id) => ids.has(id))) return false;
-        }
-        return true;
+        return matchesViewFilters(f, c, { currentUserId, draftIds, pinnedIds });
       });
       if (rows.length === 0) continue;
       for (const r of rows) claimed.add(r.id);
       out.push({ id: folder.id, name: folder.name, rows });
     }
     return out;
-  }, [filtered, folders, canGroup, currentUserId, draftIds]);
+  }, [filtered, folders, canGroup, currentUserId, draftIds, pinnedIds]);
 
   const folderClaimedIds = useMemo(
     () => new Set(folderSections.flatMap((s) => s.rows.map((r) => r.id))),
@@ -747,9 +883,7 @@ export function ConversationListPane({
                   </div>
                 )}
                 {sec.key === 'rest' && (
-                  <p className="type-micro px-2 pb-0.5 pt-3 text-muted-foreground/60">
-                    Everything else
-                  </p>
+                  <p className="type-micro px-2 pb-0.5 pt-3 text-muted-foreground/60">Other</p>
                 )}
                 {!collapsedBundles.has(sec.bundle?.id ?? sec.folder?.id ?? '') &&
                   sec.rows.map((c) => {
@@ -768,6 +902,7 @@ export function ConversationListPane({
               const nudgeMeta = (c.metadata as { nudge?: { dismissedAt?: string } } | null)?.nudge;
               const hasNudge = Boolean(nudgeMeta && !nudgeMeta.dismissedAt);
               const muted = Boolean(c.mutedAt);
+              const isPinned = pinnedIds.has(c.id);
               // Only for threads the classifier called a code — running the
               // extractor over every preview would find false positives in
               // order numbers and addresses.
@@ -856,6 +991,27 @@ export function ConversationListPane({
                             aria-label="Muted"
                           />
                         )}
+                        {/* Visible once pinned, otherwise only on hover: an
+                            affordance on every row at all times is noise, but
+                            a pin you can't see isn't a pin. */}
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            pin(c.id, name);
+                          }}
+                          title={isPinned ? 'Unpin' : 'Pin to top'}
+                          aria-label={isPinned ? `Unpin ${name}` : `Pin ${name} to top`}
+                          aria-pressed={isPinned}
+                          className={cn(
+                            'rounded p-0.5 transition-all duration-150 hover:text-foreground',
+                            isPinned
+                              ? 'text-brand'
+                              : 'text-muted-foreground/50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                          )}
+                        >
+                          <Pin className={cn('h-3 w-3', isPinned && 'fill-current')} />
+                        </button>
                         {listTime(c.lastMessageAt)}
                       </span>
                     </div>

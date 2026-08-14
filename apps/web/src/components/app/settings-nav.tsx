@@ -42,6 +42,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     title: 'Account',
     items: [
       { href: '/settings/profile', label: 'Profile', icon: User },
+      { href: '/settings/inbox', label: 'Inbox', icon: Inbox },
       { href: '/settings/preferences', label: 'Preferences', icon: Bell },
       { href: '/settings/keyboard', label: 'Shortcuts', icon: Keyboard },
     ],

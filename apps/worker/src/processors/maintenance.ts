@@ -26,6 +26,7 @@ import {
   notifications,
   savedViews,
   users,
+  type ViewFilters,
 } from '@comms/db';
 import { loadConnection } from '../lib/connection.js';
 import { ingestNewMessage } from '../lib/ingest.js';
@@ -40,16 +41,42 @@ const KIND_BACKFILL_KEY = 'kind_backfill_done';
 const FOLDERS_SEEDED_KEY = 'default_folders_seeded';
 
 /**
- * The split inbox every install starts with: machine traffic grouped under
- * its own headers so the People stream is people. Shared (admin-managed) and
- * shown as sections in the inbox list; each can be turned off from
- * Settings → Workspace, which deletes the folder — the seeded flag makes
- * sure a deliberate off stays off across restarts.
+ * The split inbox every install starts with.
+ *
+ * "Important" leads, then machine traffic under its own headers so the People
+ * stream is people. Everything none of them claims falls into the list's
+ * residual "Other" section, which is not a folder and cannot be deleted —
+ * that Important/Other pair is the split people mean when they ask for one.
+ *
+ * Shared (admin-managed) and shown as sections; each can be turned off from
+ * Settings → Workspace, which deletes the folder — the seeded flag makes sure
+ * a deliberate off stays off across restarts.
  */
-const DEFAULT_FOLDERS: { name: string; icon: string; kind: 'otp' | 'automated' | 'unknown' }[] = [
-  { name: 'Verification codes', icon: 'KeyRound', kind: 'otp' },
-  { name: 'Automated', icon: 'Bot', kind: 'automated' },
-  { name: 'Unknown numbers', icon: 'UserRound', kind: 'unknown' },
+const DEFAULT_FOLDERS: { name: string; icon: string; filters: ViewFilters }[] = [
+  {
+    name: 'Important',
+    icon: 'Star',
+    // Urgent or high priority, pinned, or assigned to the person looking —
+    // `assignee: 'me'` resolves per viewer, so one shared folder means
+    // something different, and correct, for each of them.
+    filters: {
+      // What lets the Workspace switch find this folder again after someone
+      // renames it or edits its rule.
+      splitKey: 'important',
+      query: {
+        match: 'any',
+        conditions: [
+          { field: 'priority', operator: 'is', value: 'urgent' },
+          { field: 'priority', operator: 'is', value: 'high' },
+          { field: 'pinned', operator: 'is', value: 'true' },
+          { field: 'assignee', operator: 'is', value: 'me' },
+        ],
+      },
+    },
+  },
+  { name: 'Verification codes', icon: 'KeyRound', filters: { splitKey: 'otp', kind: 'otp' } },
+  { name: 'Automated', icon: 'Bot', filters: { splitKey: 'automated', kind: 'automated' } },
+  { name: 'Unknown numbers', icon: 'UserRound', filters: { splitKey: 'unknown', kind: 'unknown' } },
 ];
 
 async function seedDefaultFolders() {
@@ -59,14 +86,17 @@ async function seedDefaultFolders() {
   });
   if (done?.value) return;
 
-  for (const f of DEFAULT_FOLDERS) {
+  for (const [i, f] of DEFAULT_FOLDERS.entries()) {
     await db.insert(savedViews).values({
       name: f.name,
       icon: f.icon,
       display: 'section',
       isShared: true,
       ownerUserId: null,
-      filters: { kind: f.kind, status: 'active' },
+      // Sections are claimed first-come, so the order here is the order the
+      // inbox reads in — Important above the machine traffic, not below it.
+      sortOrder: i,
+      filters: { ...f.filters, status: 'active' },
     });
   }
 
