@@ -1,6 +1,6 @@
 import 'server-only';
-import { asc, eq, sql, roleGrants, EXPECTED_MIGRATION_COUNT } from '@comms/db';
-import { aiProviders, channelConnections, inboxes, users } from '@comms/db';
+import { asc, eq, inArray, sql, roleGrants, EXPECTED_MIGRATION_COUNT } from '@comms/db';
+import { aiProviders, attachments, channelConnections, inboxes, users } from '@comms/db';
 import {
   QUEUE_NAMES,
   attachmentsQueue,
@@ -129,6 +129,12 @@ export interface SystemHealth {
   queues: { name: string; waiting: number; active: number; delayed: number; failed: number }[];
   bridges: { inboxName: string; status: string; lastHeartbeatAt: string | null }[];
   storageConfigured: boolean;
+  /**
+   * Photos waiting for somewhere to live. Non-zero with storage off is the
+   * whole reason this number exists: it turns "images don't show up" from a
+   * mystery into a sentence.
+   */
+  attachmentsPending: number;
   smtpConfigured: boolean;
   transcriptionConfigured: boolean;
 }
@@ -200,6 +206,12 @@ export async function getSystemHealth(): Promise<SystemHealth> {
 
   const schema = await getSchemaState();
 
+  const [pendingRow] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(attachments)
+    .where(inArray(attachments.status, ['pending', 'failed']));
+  const attachmentsPending = Number(pendingRow?.n ?? 0);
+
   // Rollup. Datastores are load-bearing; everything else degrades.
   const status: ServiceStatus =
     !dbHealth.ok || !redisHealth.ok
@@ -227,6 +239,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       lastHeartbeatAt: b.lastHeartbeatAt?.toISOString() ?? null,
     })),
     storageConfigured: cfg.storageEnabled,
+    attachmentsPending,
     smtpConfigured: cfg.smtpEnabled,
     transcriptionConfigured: cfg.transcriptionEnabled,
   };

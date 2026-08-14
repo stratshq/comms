@@ -35,8 +35,17 @@ export async function processAttachment(job: Job<AttachmentJob>): Promise<void> 
   if (att.status === 'stored') return;
 
   if (!isStorageEnabled()) {
-    await db.update(attachments).set({ status: 'failed' }).where(eq(attachments.id, attachmentId));
-    log.warn('object storage disabled; cannot persist attachment');
+    /**
+     * Leave it pending, not failed.
+     *
+     * This used to mark the row `failed`, which is terminal — so every photo
+     * that arrived before someone configured a bucket was written off
+     * permanently, and configuring one later brought none of them back. A
+     * missing bucket is a deployment state, not a property of the
+     * attachment; `retryPendingAttachments` picks these up once there is
+     * somewhere to put them.
+     */
+    log.warn({ attachmentId }, 'object storage disabled; leaving attachment pending');
     return;
   }
 

@@ -92,6 +92,12 @@ async function main() {
       if (await due('nudges', 60 * 60)) {
         await enqueueMaintenance({ type: 'nudges' });
       }
+      // Photos that arrived before this install had a bucket. Cheap and a
+      // no-op with nothing pending, but the first tick after someone
+      // configures storage is where every stranded image comes back.
+      if (await due('retryAttachments', 10 * 60)) {
+        await enqueueMaintenance({ type: 'retryAttachments' });
+      }
       // Bundling costs a model call — hourly, and only when AI is configured
       // (env key or a provider connected in the admin panel).
       if ((await isAiConfigured()) && (await due('bundle', 60 * 60))) {

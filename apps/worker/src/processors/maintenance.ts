@@ -7,7 +7,9 @@ import {
   classifyCorrespondent,
   describeConnectionError,
   detectCommitment,
+  enqueueAttachment,
   enqueueMaintenance,
+  isStorageEnabled,
   outboundQueue,
   loadConfig,
   publishEvent,
@@ -18,6 +20,7 @@ import { backfillParticipants, repairContactlessConversations } from '../lib/par
 import { getDb, eq, and, asc, desc, lte, ne, inArray, isNotNull, sql, roleGrants } from '@comms/db';
 import {
   appSettings,
+  attachments,
   channelConnections,
   contacts,
   conversations,
@@ -627,6 +630,78 @@ async function contactSync(connectionId: string) {
   }
 }
 
+/** Marks the one-time rescue of attachments failed for want of a bucket. */
+const ATTACHMENT_RESCUE_KEY = 'attachment_storage_rescue_done';
+
+/**
+ * Re-queue attachments that never made it into storage.
+ *
+ * Two populations. The ones sitting at `pending` are usually just in flight,
+ * so only those older than a few minutes are touched. The ones at `failed`
+ * are the historical casualties of marking a missing S3 bucket as a permanent
+ * property of the attachment — they are rescued once, guarded by a flag,
+ * because after that a `failed` row means the download genuinely failed and
+ * retrying it forever would be a loop.
+ *
+ * Does nothing at all until there is somewhere to put the bytes.
+ */
+async function retryPendingAttachments() {
+  if (!isStorageEnabled()) return;
+  const db = getDb();
+
+  const done = await db.query.appSettings.findFirst({
+    where: eq(appSettings.key, ATTACHMENT_RESCUE_KEY),
+  });
+  if (!done?.value) {
+    const rescued = await db
+      .update(attachments)
+      .set({ status: 'pending' })
+      .where(eq(attachments.status, 'failed'))
+      .returning({ id: attachments.id });
+    await db
+      .insert(appSettings)
+      .values({ key: ATTACHMENT_RESCUE_KEY, value: true })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: true } });
+    if (rescued.length) log.info({ count: rescued.length }, 'rescued failed attachments');
+  }
+
+  // Join through to the connection: the download needs a Mac to ask, and the
+  // attachment row only knows its message.
+  const stale = await db
+    .select({
+      id: attachments.id,
+      guid: attachments.providerAttachmentGuid,
+      connectionId: channelConnections.id,
+    })
+    .from(attachments)
+    .innerJoin(messages, eq(messages.id, attachments.messageId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .innerJoin(channelConnections, eq(channelConnections.inboxId, conversations.inboxId))
+    .where(
+      and(
+        eq(attachments.status, 'pending'),
+        isNotNull(attachments.providerAttachmentGuid),
+        lte(attachments.createdAt, new Date(Date.now() - 5 * 60_000)),
+      ),
+    )
+    .orderBy(asc(attachments.createdAt))
+    // Bounded so a long-disabled install doesn't flood the bridge on the
+    // first tick after someone configures a bucket; the next sweep takes more.
+    .limit(200);
+
+  for (const a of stale) {
+    if (!a.guid) continue;
+    await enqueueAttachment({
+      attachmentId: a.id,
+      connectionId: a.connectionId,
+      providerAttachmentGuid: a.guid,
+    }).catch((err) =>
+      log.warn({ err: (err as Error).message, attachmentId: a.id }, 'could not re-queue'),
+    );
+  }
+  if (stale.length) log.info({ count: stale.length }, 're-queued attachments for storage');
+}
+
 export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void> {
   const data = job.data;
   switch (data.type) {
@@ -656,5 +731,7 @@ export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void
       return classifyExisting();
     case 'seedDefaultFolders':
       return seedDefaultFolders();
+    case 'retryAttachments':
+      return retryPendingAttachments();
   }
 }

@@ -748,6 +748,180 @@ export interface GroupParticipant {
  * details panel never read it — a group thread showed one phone number,
  * which answered "who is this" with a lie of omission.
  */
+export interface PersonProfile {
+  contact: {
+    id: string;
+    displayName: string | null;
+    company: string | null;
+    notes: string | null;
+    avatarUrl: string | null;
+    attributes: Record<string, string>;
+    optedOutAt: Date | null;
+    syncedAt: Date | null;
+    createdAt: Date;
+  };
+  identities: { id: string; kind: string; value: string; rawValue: string | null }[];
+  conversations: {
+    id: string;
+    title: string | null;
+    isGroup: boolean;
+    status: string;
+    unreadCount: number;
+    lastMessageAt: Date | null;
+    lastMessagePreview: string | null;
+    providerChatGuid: string;
+    inbox: { name: string; color: string } | null;
+  }[];
+  stats: {
+    totalMessages: number;
+    inbound: number;
+    outbound: number;
+    firstMessageAt: Date | null;
+    lastInboundAt: Date | null;
+  };
+  photos: { id: string; fileName: string | null }[];
+  photoCount: number;
+}
+
+/**
+ * Everything about one person, for their own page.
+ *
+ * Scoped to the CONTACT rather than a single conversation — which is the
+ * whole point of the page. The same human texting from two numbers, or in a
+ * one-to-one and three group chats, is one person here; the details panel
+ * beside a thread can only ever answer for that thread.
+ */
+export async function getPersonProfile(contactId: string): Promise<PersonProfile | null> {
+  const contact = await db.query.contacts.findFirst({ where: eq(contacts.id, contactId) });
+  if (!contact) return null;
+
+  const identityRows = await db
+    .select({
+      id: contactIdentities.id,
+      kind: contactIdentities.kind,
+      value: contactIdentities.value,
+      rawValue: contactIdentities.rawValue,
+    })
+    .from(contactIdentities)
+    .where(eq(contactIdentities.contactId, contactId))
+    .orderBy(
+      sql`case ${contactIdentities.kind} when 'phone' then 0 when 'handle' then 1 else 2 end`,
+      asc(contactIdentities.value),
+    );
+
+  /**
+   * Their threads: the ones linked straight to the contact, plus any group
+   * they appear in as a participant.
+   *
+   * The union matters. A group chat carries no `contactId` — it belongs to no
+   * single person — so keying only on that column would show someone's
+   * one-to-one thread and silently omit the four group chats they are in.
+   */
+  const identityIds = identityRows.map((i) => i.id);
+  const memberOf = identityIds.length
+    ? await db
+        .selectDistinct({ id: conversationParticipants.conversationId })
+        .from(conversationParticipants)
+        .where(inArray(conversationParticipants.contactIdentityId, identityIds))
+    : [];
+  const groupIds = memberOf.map((r) => r.id);
+
+  const conversationRows = await db.query.conversations.findMany({
+    where: groupIds.length
+      ? or(eq(conversations.contactId, contactId), inArray(conversations.id, groupIds))
+      : eq(conversations.contactId, contactId),
+    orderBy: [desc(conversations.lastMessageAt)],
+    limit: 100,
+    with: { inbox: { columns: { name: true, color: true } } },
+  });
+
+  const conversationIds = conversationRows.map((c) => c.id);
+  const scope = conversationIds.length
+    ? and(
+        inArray(messages.conversationId, conversationIds),
+        // System events are ours, not theirs, and would inflate every count.
+        sql`${messages.authorType} <> 'system'`,
+      )
+    : sql`false`;
+
+  const [statRows, photoRows, photoTotal] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`count(*)`,
+        inbound: sql<number>`count(*) filter (where ${messages.direction} = 'inbound')`,
+        outbound: sql<number>`count(*) filter (where ${messages.direction} = 'outbound')`,
+        firstAt: sql<Date | null>`min(coalesce(${messages.sentAt}, ${messages.createdAt}))`,
+        lastInbound: sql<Date | null>`max(coalesce(${messages.sentAt}, ${messages.createdAt})) filter (where ${messages.direction} = 'inbound')`,
+      })
+      .from(messages)
+      .where(scope),
+    conversationIds.length
+      ? db
+          .select({ id: attachments.id, fileName: attachments.fileName })
+          .from(attachments)
+          .innerJoin(messages, eq(messages.id, attachments.messageId))
+          .where(
+            and(
+              inArray(messages.conversationId, conversationIds),
+              eq(attachments.status, 'stored'),
+              sql`${attachments.mimeType} like 'image/%'`,
+            ),
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(12)
+      : Promise.resolve([]),
+    conversationIds.length
+      ? db
+          .select({ n: sql<number>`count(*)` })
+          .from(attachments)
+          .innerJoin(messages, eq(messages.id, attachments.messageId))
+          .where(
+            and(
+              inArray(messages.conversationId, conversationIds),
+              eq(attachments.status, 'stored'),
+              sql`${attachments.mimeType} like 'image/%'`,
+            ),
+          )
+      : Promise.resolve([{ n: 0 }]),
+  ]);
+
+  const s = statRows[0];
+  return {
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      company: contact.company,
+      notes: contact.notes,
+      avatarUrl: contact.avatarUrl,
+      attributes: contact.attributes ?? {},
+      optedOutAt: contact.optedOutAt,
+      syncedAt: contact.syncedAt,
+      createdAt: contact.createdAt,
+    },
+    identities: identityRows,
+    conversations: conversationRows.map((c) => ({
+      id: c.id,
+      title: c.title,
+      isGroup: c.isGroup,
+      status: c.status,
+      unreadCount: c.unreadCount,
+      lastMessageAt: c.lastMessageAt,
+      lastMessagePreview: c.lastMessagePreview,
+      providerChatGuid: c.providerChatGuid,
+      inbox: c.inbox ? { name: c.inbox.name, color: c.inbox.color } : null,
+    })),
+    stats: {
+      totalMessages: Number(s?.total ?? 0),
+      inbound: Number(s?.inbound ?? 0),
+      outbound: Number(s?.outbound ?? 0),
+      firstMessageAt: s?.firstAt ? new Date(s.firstAt) : null,
+      lastInboundAt: s?.lastInbound ? new Date(s.lastInbound) : null,
+    },
+    photos: photoRows,
+    photoCount: Number(photoTotal[0]?.n ?? 0),
+  };
+}
+
 export async function getGroupParticipants(conversationId: string): Promise<GroupParticipant[]> {
   const rows = await db
     .select({

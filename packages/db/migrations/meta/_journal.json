@@ -99,6 +99,13 @@
       "when": 1786689497068,
       "tag": "0013_zippy_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786693782336,
+      "tag": "0014_stiff_violations",
+      "breakpoints": true
     }
   ]
 }

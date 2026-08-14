@@ -20,8 +20,25 @@ export const contacts = pgTable(
   optedOutAt: timestamp('opted_out_at', { withTimezone: true }),
   /** Last time the Mac's address book enriched this record. */
   syncedAt: timestamp('synced_at', { withTimezone: true }),
-  /** S3 key for a synced address-book photo; served via /api/avatars/:id. */
+  /**
+   * Legacy: S3 key for a synced address-book photo. Still served for installs
+   * that synced before avatars moved into the database, but nothing writes it
+   * any more — see `avatarData`.
+   */
   avatarStorageKey: text('avatar_storage_key'),
+  /**
+   * The address-book photo itself, base64, exactly as BlueBubbles hands it
+   * over.
+   *
+   * In the database rather than object storage because a contact photo is a
+   * few KB and an inbox where nobody has a face is materially worse to use.
+   * Gating that on an S3 bucket meant every install without one showed
+   * initials for every person forever, with nothing anywhere saying why.
+   * Attachments are a different matter and stay in object storage.
+   */
+  avatarData: text('avatar_data'),
+  /** Mime type for `avatarData`, sniffed from the bytes. */
+  avatarMime: text('avatar_mime'),
   ...timestamps,
   },
 );

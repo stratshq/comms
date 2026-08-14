@@ -4,19 +4,23 @@ import {
   type BBContact,
   normalizeAddress,
   addressMatchKey,
-  putObject,
-  isStorageEnabled,
   logger,
 } from '@comms/core';
 import { loadConnection } from './connection.js';
 
 const log = logger.child({ module: 'contacts' });
 
-/** Guard against a malicious or corrupt avatar blowing up object storage. */
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+/**
+ * Guard against a malicious or corrupt avatar bloating the contacts table.
+ *
+ * A macOS address-book photo is typically 10–60KB. 512KB is generous for a
+ * real one and small enough that a 10,000-contact workspace stays well inside
+ * what Postgres handles comfortably (and TOAST compresses it further).
+ */
+const MAX_AVATAR_BYTES = 512 * 1024;
 
 /** Base64 has no mime type attached, so sniff the signature. */
-function avatarMime(base64: string): string {
+function avatarMimeOf(base64: string): string {
   if (base64.startsWith('/9j/')) return 'image/jpeg';
   if (base64.startsWith('iVBORw0KGgo')) return 'image/png';
   if (base64.startsWith('R0lGOD')) return 'image/gif';
@@ -197,8 +201,11 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
     })
     .map(([, entry]) => entry.address.raw);
 
+  // Unconditional. This used to be gated on object storage being configured,
+  // which meant an install without an S3 bucket showed initials for every
+  // contact in the product, permanently and with no error anywhere.
   const avatarByAddress = new Map<string, string>();
-  if (isStorageEnabled() && wantAvatars.length) {
+  if (wantAvatars.length) {
     for (let i = 0; i < wantAvatars.length; i += 50) {
       const batch = wantAvatars.slice(i, i + 50);
       try {
@@ -213,19 +220,15 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
     }
   }
 
-  /** Store an avatar in S3 and return its key, or null. */
-  async function storeAvatar(contactId: string, base64: string): Promise<string | null> {
-    try {
-      const bytes = Buffer.from(base64, 'base64');
-      if (bytes.length === 0 || bytes.length > MAX_AVATAR_BYTES) return null;
-      const mime = avatarMime(base64);
-      const key = `avatars/${contactId}.${mime === 'image/png' ? 'png' : 'jpg'}`;
-      await putObject(key, bytes, mime);
-      return key;
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, 'avatar upload failed');
-      return null;
-    }
+  /**
+   * The columns that put a face on a contact, or null if the photo is
+   * unusable. Decoding first is the size check — base64 overstates the real
+   * byte count by a third.
+   */
+  function avatarPatch(base64: string): { avatarData: string; avatarMime: string } | null {
+    const bytes = Buffer.byteLength(base64, 'base64');
+    if (bytes === 0 || bytes > MAX_AVATAR_BYTES) return null;
+    return { avatarData: base64, avatarMime: avatarMimeOf(base64) };
   }
 
   const now = new Date();
@@ -243,9 +246,10 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
         result.alreadyNamed += 1;
       }
       if (!existing.avatarUrl && avatarByAddress.has(key)) {
-        const stored = await storeAvatar(existing.contactId, avatarByAddress.get(key)!);
-        if (stored) {
-          patch.avatarStorageKey = stored;
+        const avatar = avatarPatch(avatarByAddress.get(key)!);
+        if (avatar) {
+          patch.avatarData = avatar.avatarData;
+          patch.avatarMime = avatar.avatarMime;
           patch.avatarUrl = `/api/avatars/${existing.contactId}`;
         }
       }
@@ -285,15 +289,13 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
       contactId = created.id;
       result.created += 1;
 
-      const avatar = avatarByAddress.get(key);
+      const raw = avatarByAddress.get(key);
+      const avatar = raw ? avatarPatch(raw) : null;
       if (avatar) {
-        const stored = await storeAvatar(contactId, avatar);
-        if (stored) {
-          await db
-            .update(contacts)
-            .set({ avatarStorageKey: stored, avatarUrl: `/api/avatars/${contactId}` })
-            .where(eq(contacts.id, contactId));
-        }
+        await db
+          .update(contacts)
+          .set({ ...avatar, avatarUrl: `/api/avatars/${contactId}` })
+          .where(eq(contacts.id, contactId));
       }
     }
 

@@ -11,4 +11,4 @@
  * `migrations/meta/_journal.json`, so adding a migration without bumping it
  * fails CI rather than silently reporting a phantom pending migration.
  */
-export const EXPECTED_MIGRATION_COUNT = 14;
+export const EXPECTED_MIGRATION_COUNT = 15;

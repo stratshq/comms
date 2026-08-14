@@ -268,7 +268,7 @@ export function HealthTab({
         </CardHeader>
         <CardContent className="space-y-2">
           {[
-            { label: 'Attachment storage (S3)', ok: health.storageConfigured },
+            { label: 'Photo & file storage (S3)', ok: health.storageConfigured },
             { label: 'Email (SMTP)', ok: health.smtpConfigured },
             { label: 'Voice transcription', ok: health.transcriptionConfigured },
           ].map((row) => (
@@ -284,6 +284,30 @@ export function HealthTab({
               </span>
             </div>
           ))}
+
+          {/* "Optional" undersells this one. Without a bucket every photo
+              anyone sends is invisible, and the neutral dot above reads as
+              "fine, you just don't use it" — so say the consequence out loud,
+              with the number of pictures currently waiting on it. */}
+          {!health.storageConfigured && (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-2 text-[12px] leading-relaxed text-foreground/80">
+              <span className="font-medium">Photos won&rsquo;t appear anywhere</span> until this is
+              configured — not in threads, not in the gallery.
+              {health.attachmentsPending > 0 && (
+                <>
+                  {' '}
+                  {health.attachmentsPending.toLocaleString()} file
+                  {health.attachmentsPending === 1 ? ' is' : 's are'} waiting; they download
+                  automatically within ten minutes of you setting{' '}
+                  <code className="font-mono text-[11px]">S3_ENDPOINT</code>,{' '}
+                  <code className="font-mono text-[11px]">S3_BUCKET</code>,{' '}
+                  <code className="font-mono text-[11px]">S3_ACCESS_KEY_ID</code> and{' '}
+                  <code className="font-mono text-[11px]">S3_SECRET_ACCESS_KEY</code>.
+                </>
+              )}{' '}
+              Contact photos are unaffected — those live in the database.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

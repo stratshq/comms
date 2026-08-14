@@ -25,6 +25,34 @@ export interface PersonCardProps {
 }
 
 /**
+ * Wraps a bit of the card in a link to the person's page — or doesn't, when
+ * there is no contact row behind the thread. Rendering a dead link to
+ * `/people/null` would look identical right up until someone clicked it.
+ */
+function PersonLink({
+  contactId,
+  label,
+  className,
+  children,
+}: {
+  contactId: string | null | undefined;
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  if (!contactId) return <>{children}</>;
+  return (
+    <Link
+      href={`/people/${contactId}`}
+      title={`Open ${label}'s profile`}
+      className={cn('block shrink-0', className)}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/**
  * Who you are talking to.
  *
  * This sits above the ticket controls because it answers the question you
@@ -42,14 +70,26 @@ export function PersonCard(p: PersonCardProps) {
   return (
     <div className="px-4 pb-4 pt-4">
       <div className="flex items-center gap-3">
-        <Avatar className="h-12 w-12 ring-1 ring-border">
-          {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.name} />}
-          <AvatarFallback className="type-item bg-secondary font-semibold text-muted-foreground">
-            {initials(p.name)}
-          </AvatarFallback>
-        </Avatar>
+        {/* Their face is the way into their page. A group has no single
+            person behind it, so there it stays a picture. */}
+        <PersonLink contactId={p.isGroup ? null : p.contactId} label={p.name}>
+          <Avatar className="h-12 w-12 ring-1 ring-border">
+            {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.name} />}
+            <AvatarFallback className="type-item bg-secondary font-semibold text-muted-foreground">
+              {initials(p.name)}
+            </AvatarFallback>
+          </Avatar>
+        </PersonLink>
         <div className="min-w-0">
-          <p className="type-title truncate">{p.name}</p>
+          <p className="type-title truncate">
+            <PersonLink
+              contactId={p.isGroup ? null : p.contactId}
+              label={p.name}
+              className="rounded transition-colors hover:text-brand"
+            >
+              {p.name}
+            </PersonLink>
+          </p>
           {local && (
             <p
               className={cn(

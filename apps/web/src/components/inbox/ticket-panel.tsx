@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -232,8 +233,8 @@ export function TicketPanel({
             {participants.map((m) => {
               const display = m.name || formatAddress(m.rawAddress ?? m.address) || m.address;
               const sub = m.name ? (formatAddress(m.rawAddress ?? m.address) ?? m.address) : null;
-              return (
-                <div key={m.address} className="flex items-center gap-2.5">
+              const body = (
+                <>
                   <Avatar className="h-7 w-7 ring-1 ring-border">
                     {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt="" />}
                     <AvatarFallback className="bg-secondary text-[10px] font-semibold text-muted-foreground">
@@ -251,6 +252,23 @@ export function TicketPanel({
                   {!m.name && (
                     <span className="type-caption shrink-0 text-muted-foreground/60">unknown</span>
                   )}
+                </>
+              );
+
+              // A member with no contact row is just an address we've seen in
+              // this chat — there is no page to open, so it stays inert
+              // rather than offering a link that 404s.
+              return m.contactId ? (
+                <Link
+                  key={m.address}
+                  href={`/people/${m.contactId}`}
+                  className="-mx-1.5 flex items-center gap-2.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-accent"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <div key={m.address} className="flex items-center gap-2.5">
+                  {body}
                 </div>
               );
             })}

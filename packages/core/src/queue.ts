@@ -51,6 +51,8 @@ export type MaintenanceJob =
   | { type: 'repairContacts' }
   /** Scan recent outbound replies for broken promises ("I'll send it Friday"). */
   | { type: 'nudges' }
+  /** Re-download attachments that never reached object storage. */
+  | { type: 'retryAttachments' }
   /** One-time: classify conversations that predate the correspondent detector. */
   | { type: 'classifyExisting' }
   /** One-time: create the default split-inbox folders. */
