@@ -671,6 +671,71 @@ async function contactSync(connectionId: string) {
 }
 
 /**
+ * Convert tapbacks already stored as ordinary messages.
+ *
+ * Everything ingested before SMS tapbacks were recognised sits in the thread
+ * as a message reading `Loved "not home!"`. Fixing ingest only helps the next
+ * one; these rows stay wrong until something rewrites them.
+ *
+ * The SQL prefilter is what keeps this from being a full table scan on every
+ * boot — the regex narrows to rows that begin like a tapback, and
+ * `parseTextTapback` makes the real decision on the handful that match.
+ */
+async function repairTextTapbacks(): Promise<number> {
+  const db = getDb();
+  const candidates = await db
+    .select({
+      id: messages.id,
+      conversationId: messages.conversationId,
+      body: messages.body,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        isNull(messages.reactionType),
+        ne(messages.authorType, 'system'),
+        sql`${messages.body} ~* '^(loved|liked|disliked|laughed at|emphasi[sz]ed|questioned|removed an? )'`,
+      ),
+    )
+    .limit(5000);
+
+  let converted = 0;
+  for (const m of candidates) {
+    const parsed = parseTextTapback(m.body);
+    if (!parsed) continue;
+
+    // Same target rule as ingest: the newest matching message BEFORE this one.
+    let guid: string | null = null;
+    if (parsed.target) {
+      const [target] = await db
+        .select({ guid: messages.providerMessageGuid })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, m.conversationId),
+            eq(messages.body, parsed.target),
+            isNotNull(messages.providerMessageGuid),
+            lte(messages.createdAt, m.createdAt),
+          ),
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+      guid = target?.guid ?? null;
+    }
+
+    await db
+      .update(messages)
+      .set({ reactionType: parsed.reaction, associatedMessageGuid: guid })
+      .where(eq(messages.id, m.id));
+    converted += 1;
+  }
+
+  if (converted) log.info({ count: converted }, 'converted text tapbacks into reactions');
+  return converted;
+}
+
+/**
  * Undo previews that a tapback overwrote.
  *
  * Before reactions were excluded from the conversation bump, hearting a text
@@ -815,6 +880,9 @@ export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void
     case 'repairNames':
       await repairBlankNames();
       await repairChatNamedContacts();
+      // Order matters: rewrite the tapback rows first, so the preview repair
+      // can find the newest message that genuinely isn't a reaction.
+      await repairTextTapbacks();
       await repairTapbackPreviews();
       return;
     case 'repairContacts':

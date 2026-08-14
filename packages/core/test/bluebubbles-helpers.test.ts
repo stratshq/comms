@@ -146,3 +146,23 @@ describe('parseTextTapback', () => {
     expect(parseTextTapback(null)).toBeNull();
   });
 });
+
+/**
+ * The guard that decides whether to fall back to text parsing keys on this
+ * returning null, not on the raw field being falsy — BlueBubbles sends the
+ * STRING "0" for an ordinary message in some payload shapes, and `"0"` is
+ * truthy in JavaScript.
+ */
+describe('reactionFromAssociatedType on non-reactions', () => {
+  it('resolves nothing for every way of saying "not a tapback"', () => {
+    for (const v of [0, '0', '', null, undefined]) {
+      expect(reactionFromAssociatedType(v as never)).toBeNull();
+    }
+  });
+
+  it('still resolves real codes, as numbers or strings', () => {
+    expect(reactionFromAssociatedType(2000)).toBe('love');
+    expect(reactionFromAssociatedType('2000')).toBe('love');
+    expect(reactionFromAssociatedType(3000)).toBe('-love');
+  });
+});

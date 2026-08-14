@@ -253,9 +253,20 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     }
   }
 
-  // A structured tapback, or the plain-text one SMS delivers instead.
-  const textTapback = bb.associatedMessageType ? null : parseTextTapback(bb.text);
-  const reaction = reactionFromAssociatedType(bb.associatedMessageType) ?? textTapback?.reaction ?? null;
+  /**
+   * A structured tapback, or the plain-text one SMS delivers instead.
+   *
+   * The fallback is keyed on whether a reaction actually RESOLVED, not on
+   * whether `associatedMessageType` is truthy. BlueBubbles sends `"0"` for an
+   * ordinary message in some payload shapes, and the string `"0"` is truthy
+   * in JavaScript — so the truthiness test concluded "this is a structured
+   * tapback", declined to read the text, and then resolved no reaction from
+   * the 0. Every SMS tapback fell straight through as a plain message, which
+   * is the bug this whole path exists to fix.
+   */
+  const structuredReaction = reactionFromAssociatedType(bb.associatedMessageType);
+  const textTapback = structuredReaction ? null : parseTextTapback(bb.text);
+  const reaction = structuredReaction ?? textTapback?.reaction ?? null;
   const sentAt = bbDate(bb.dateCreated) ?? new Date();
 
   // Case 2: reconcile our outbound echo by tempGuid.
