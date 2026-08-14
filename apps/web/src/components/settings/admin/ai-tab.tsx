@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { BarChart3, Bot, Loader2, Plug, Trash2 } from 'lucide-react';
+import { BarChart3, Bot, ListRestart, Loader2, Plug, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import {
 import {
   addAiProvider,
   deleteAiProvider,
+  listProviderModels,
   setActiveAiProvider,
   testAiProvider,
 } from '@/server/actions/system';
@@ -63,6 +64,11 @@ export function AiTab({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [showAdd, setShowAdd] = useState(false);
+  // Models this key can actually reach, once someone asks. Cleared whenever
+  // the key or the provider changes — a list fetched with a different key is
+  // worse than no list, because it looks authoritative.
+  const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [pName, setPName] = useState('');
   const [pType, setPType] = useState('anthropic');
   const [pKey, setPKey] = useState('');
@@ -89,8 +95,39 @@ export function AiTab({
       setPKey('');
       setPModel('');
       setPBaseUrl('');
+      setFetchedModels(null);
       router.refresh();
     });
+  }
+
+  /**
+   * Ask the provider what this key can reach.
+   *
+   * Runs against the unsaved form so the model can be chosen while adding the
+   * provider — needing to save first would mean committing a model id you
+   * were only guessing at, which is the problem.
+   */
+  function loadModels() {
+    setLoadingModels(true);
+    void listProviderModels({
+      type: pType as Parameters<typeof listProviderModels>[0]['type'],
+      apiKey: pKey,
+      baseUrl: pBaseUrl,
+    })
+      .then((res) => {
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        setFetchedModels(res.models);
+        // Nothing chosen yet: prefill the vendor default when the provider
+        // offers it, otherwise leave it to them rather than guessing.
+        if (!pModel && res.models.includes(suggestedModels[pType] ?? '')) {
+          setPModel(suggestedModels[pType]!);
+        }
+        toast.success(`${res.models.length} models available`);
+      })
+      .finally(() => setLoadingModels(false));
   }
 
   function test(id: string, name: string) {
@@ -149,6 +186,7 @@ export function AiTab({
                     onValueChange={(v) => {
                       setPType(v);
                       setPModel('');
+                      setFetchedModels(null);
                     }}
                   >
                     <SelectTrigger>
@@ -176,28 +214,55 @@ export function AiTab({
                   <Input
                     type="password"
                     value={pKey}
-                    onChange={(e) => setPKey(e.target.value)}
+                    onChange={(e) => {
+                      setPKey(e.target.value);
+                      // A list fetched with a different key is worse than no
+                      // list — it looks authoritative and isn't.
+                      setFetchedModels(null);
+                    }}
                     placeholder="Stored encrypted with the app secret"
                     autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[12px]">Model</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-[12px]">Model</Label>
+                    <button
+                      type="button"
+                      onClick={loadModels}
+                      disabled={loadingModels || !pKey.trim()}
+                      className="flex items-center gap-1 text-[11.5px] font-medium text-brand transition-opacity hover:opacity-75 disabled:opacity-40"
+                    >
+                      {loadingModels ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <ListRestart className="h-3 w-3" />
+                      )}
+                      {fetchedModels ? `${fetchedModels.length} available` : 'Load from provider'}
+                    </button>
+                  </div>
                   <Input
                     value={pModel}
                     onChange={(e) => setPModel(e.target.value)}
                     placeholder={suggestedModels[pType] || 'model id'}
-                    // Free text with autocomplete rather than a dropdown:
-                    // vendors ship new ids constantly, and a closed list would
-                    // make this panel the reason you can't use one.
+                    // A combobox, not a dropdown. Once the key is in you can
+                    // pick from what the provider actually offers, but the
+                    // field stays free text — vendors ship ids constantly, and
+                    // a closed list would make this panel the reason you can't
+                    // use one released yesterday.
                     list={`models-${pType}`}
                     autoComplete="off"
                   />
                   <datalist id={`models-${pType}`}>
-                    {(knownModels[pType] ?? []).map((m) => (
+                    {(fetchedModels ?? knownModels[pType] ?? []).map((m) => (
                       <option key={m} value={m} />
                     ))}
                   </datalist>
+                  <p className="text-[11px] text-muted-foreground">
+                    {fetchedModels
+                      ? 'Click the field to pick one, or type any id.'
+                      : 'Paste the key above, then load the list — or type an id.'}
+                  </p>
                 </div>
                 {pType === 'custom' && (
                   <div className="space-y-1.5 sm:col-span-2">

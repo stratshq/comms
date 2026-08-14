@@ -11,6 +11,7 @@ import {
 import { encryptSecret, decryptSecret, loadConfig } from '@comms/core';
 import {
   aiText,
+  fetchAvailableModels,
   resetProviderCache,
   resolveBaseUrl,
   type ProviderType,
@@ -97,6 +98,41 @@ export async function deleteAiProvider(id: string): Promise<SystemResult> {
   resetProviderCache();
   revalidatePath('/settings/admin');
   return { ok: true };
+}
+
+export type ModelListResult =
+  | { ok: true; models: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Ask the provider what this key can reach, before anything is saved.
+ *
+ * Takes the key straight from the form rather than a stored row: the whole
+ * point is to choose a model while adding the provider, and requiring a save
+ * first would mean saving a configuration with a model id you were only
+ * guessing at. The key is never echoed back — only the resulting list is.
+ */
+export async function listProviderModels(input: {
+  type: ProviderType;
+  apiKey: string;
+  baseUrl?: string | null;
+}): Promise<ModelListResult> {
+  await requirePermission('system.admin');
+  if (!input.apiKey.trim()) return { ok: false, error: 'Enter an API key first.' };
+
+  try {
+    const models = await fetchAvailableModels({
+      type: input.type,
+      apiKey: input.apiKey.trim(),
+      baseUrl: input.baseUrl?.trim() || null,
+    });
+    if (models.length === 0) {
+      return { ok: false, error: 'The provider returned no chat models for this key.' };
+    }
+    return { ok: true, models };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 export type TestResult =
