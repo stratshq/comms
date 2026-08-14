@@ -1,10 +1,11 @@
 'use server';
 
-import { and, asc, desc, eq, inArray, sql } from '@comms/db';
+import { and, desc, eq, inArray, sql } from '@comms/db';
 import { contacts, conversations, messages } from '@comms/db';
 import {
   answerFromArchive,
   completeMessage,
+  improveDraft,
   isAiConfigured,
   summarizeConversation,
   suggestReply,
@@ -15,6 +16,18 @@ import { requireUser, requireWriter } from '@/lib/session';
 import { conversationName } from '@/lib/naming';
 
 export type AiResult = { ok: true; text: string } | { ok: false; error: string };
+
+/**
+ * How much of the thread the model sees — the NEWEST messages, not the oldest.
+ *
+ * This used to order ascending, which on any thread longer than the window fed
+ * the model the first forty messages it ever received and none of the ones
+ * being replied to. A year-old conversation was answered as it stood on day
+ * one. Rows are over-fetched because system messages and empty bodies are
+ * dropped afterwards and would otherwise eat into the window.
+ */
+const TRANSCRIPT_MESSAGES = 40;
+const TRANSCRIPT_FETCH = 60;
 
 async function loadTranscript(
   conversationId: string,
@@ -27,17 +40,22 @@ async function loadTranscript(
 
   const rows = await db.query.messages.findMany({
     where: and(eq(messages.conversationId, conversationId), eq(messages.isRetracted, false)),
-    orderBy: [asc(messages.createdAt)],
-    limit: 40,
+    orderBy: [desc(messages.createdAt)],
+    limit: TRANSCRIPT_FETCH,
     with: { authorUser: { columns: { name: true } } },
   });
 
   const transcript: TranscriptMessage[] = rows
+    // Back to chronological: the prompts all say "oldest first", and an age
+    // marker only means anything if the messages under it run forwards.
+    .reverse()
     .filter((m) => m.authorType !== 'system' && (m.body ?? '').trim())
+    .slice(-TRANSCRIPT_MESSAGES)
     .map((m) => ({
       role: m.authorType === 'contact' ? 'contact' : m.isPrivateNote ? 'note' : 'agent',
       author: m.authorUser?.name ?? null,
       text: m.body ?? '',
+      at: m.createdAt,
     }));
 
   return { contactName: conv.contact?.displayName ?? null, transcript };
@@ -60,13 +78,8 @@ export async function summarizeConversationAction(conversationId: string): Promi
   }
 }
 
-export async function suggestReplyAction(conversationId: string): Promise<AiResult> {
-  await requireWriter();
-  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
-  const data = await loadTranscript(conversationId);
-  if (!data) return { ok: false, error: 'Conversation not found.' };
-
-  // Brand-voice examples: recent real agent replies (not internal notes).
+/** Brand-voice examples: recent real agent replies (not internal notes). */
+async function loadBrandVoice(): Promise<string[]> {
   const recent = await db.query.messages.findMany({
     where: and(
       eq(messages.direction, 'outbound'),
@@ -77,16 +90,59 @@ export async function suggestReplyAction(conversationId: string): Promise<AiResu
     limit: 8,
     columns: { body: true },
   });
-  const brandVoiceExamples = recent
+  return recent
     .map((m) => m.body?.trim())
     .filter((b): b is string => Boolean(b))
     .slice(0, 6);
+}
+
+export async function suggestReplyAction(conversationId: string): Promise<AiResult> {
+  await requireWriter();
+  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
+  const data = await loadTranscript(conversationId);
+  if (!data) return { ok: false, error: 'Conversation not found.' };
 
   try {
     const text = await suggestReply({
       contactName: data.contactName,
       messages: data.transcript,
-      brandVoiceExamples,
+      brandVoiceExamples: await loadBrandVoice(),
+    });
+    return { ok: true, text };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Rewrite what the caller has already typed.
+ *
+ * The counterpart to suggesting a reply from nothing: when you know what you
+ * want to say, the useful help is polish, not a fresh draft that has to be
+ * read from scratch and checked for invented facts.
+ */
+export async function improveDraftAction(input: {
+  conversationId: string;
+  draft: string;
+  /** Optional steer — "shorter", "warmer", "less formal". */
+  guidance?: string;
+}): Promise<AiResult> {
+  await requireWriter();
+  if (!(await isAiConfigured())) return { ok: false, error: 'AI is not configured.' };
+
+  const draft = input.draft.trim();
+  if (!draft) return { ok: false, error: 'Write something first.' };
+
+  const data = await loadTranscript(input.conversationId);
+  if (!data) return { ok: false, error: 'Conversation not found.' };
+
+  try {
+    const text = await improveDraft({
+      contactName: data.contactName,
+      messages: data.transcript,
+      draft,
+      brandVoiceExamples: await loadBrandVoice(),
+      guidance: input.guidance,
     });
     return { ok: true, text };
   } catch (err) {
@@ -197,7 +253,11 @@ export async function askArchiveAction(question: string): Promise<AskResult> {
     .limit(40);
 
   if (rows.length === 0) {
-    return { ok: true, answer: "I couldn't find anything in your messages about that.", sources: [] };
+    return {
+      ok: true,
+      answer: "I couldn't find anything in your messages about that.",
+      sources: [],
+    };
   }
 
   const excerpts = rows.map((r) => ({

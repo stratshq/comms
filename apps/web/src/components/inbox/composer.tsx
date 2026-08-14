@@ -557,7 +557,9 @@ export function Composer({
                 }}
               />
             )}
-            {aiEnabled && <AiAssist conversationId={conversationId} onDraft={setBody} />}
+            {aiEnabled && (
+              <AiAssist conversationId={conversationId} draft={body} onDraft={setBody} />
+            )}
             {macros.length > 0 && (
               <Popover>
                 <PopoverTrigger asChild>

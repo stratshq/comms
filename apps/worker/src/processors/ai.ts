@@ -9,7 +9,7 @@ import {
   type BundleCandidate,
   type TranscriptMessage,
 } from '@comms/ai';
-import { getDb, eq, and, asc, desc, inArray, isNull, sql } from '@comms/db';
+import { getDb, eq, and, desc, inArray, isNull, sql } from '@comms/db';
 import {
   conversations,
   messages,
@@ -20,6 +20,18 @@ import {
 } from '@comms/db';
 
 const log = logger.child({ module: 'ai' });
+
+/**
+ * How much of the thread the model sees — the NEWEST messages, not the oldest.
+ *
+ * This used to order ascending, which on any thread longer than the window fed
+ * the model the first forty messages it ever received and none of the ones
+ * being replied to. A year-old conversation was triaged and answered as it
+ * stood on day one. Rows are over-fetched because system messages and empty
+ * bodies are dropped afterwards and would otherwise eat into the window.
+ */
+const TRANSCRIPT_MESSAGES = 40;
+const TRANSCRIPT_FETCH = 60;
 
 /** Load the recent transcript for a conversation in the AI package's shape. */
 async function loadTranscript(conversationId: string): Promise<{
@@ -34,17 +46,22 @@ async function loadTranscript(conversationId: string): Promise<{
 
   const rows = await db.query.messages.findMany({
     where: and(eq(messages.conversationId, conversationId), eq(messages.isRetracted, false)),
-    orderBy: [asc(messages.createdAt)],
-    limit: 40,
+    orderBy: [desc(messages.createdAt)],
+    limit: TRANSCRIPT_FETCH,
     with: { authorUser: { columns: { name: true } } },
   });
 
   const transcript: TranscriptMessage[] = rows
+    // Back to chronological: the prompts all say "oldest first", and an age
+    // marker only means anything if the messages under it run forwards.
+    .reverse()
     .filter((m) => m.authorType !== 'system' && (m.body ?? '').trim())
+    .slice(-TRANSCRIPT_MESSAGES)
     .map((m) => ({
       role: m.authorType === 'contact' ? 'contact' : m.isPrivateNote ? 'note' : 'agent',
       author: m.authorUser?.name ?? null,
       text: m.body ?? '',
+      at: m.createdAt,
     }));
 
   return { transcript, contactName: conv?.contact?.displayName ?? null };
@@ -192,10 +209,7 @@ async function bundleSweep(): Promise<void> {
   const db = getDb();
 
   const rows = await db.query.conversations.findMany({
-    where: and(
-      inArray(conversations.status, ['open', 'pending']),
-      isNull(conversations.bundleId),
-    ),
+    where: and(inArray(conversations.status, ['open', 'pending']), isNull(conversations.bundleId)),
     orderBy: [desc(conversations.lastMessageAt)],
     limit: 120,
     columns: { id: true, title: true, lastMessagePreview: true, metadata: true },
