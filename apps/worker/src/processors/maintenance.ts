@@ -6,6 +6,7 @@ import {
   addressFromChatGuid,
   classifyCorrespondent,
   describeConnectionError,
+  isRealContactName,
   detectCommitment,
   enqueueAttachment,
   enqueueMaintenance,
@@ -15,7 +16,7 @@ import {
   publishEvent,
   logger,
 } from '@comms/core';
-import { repairBlankNames, syncContacts } from '../lib/contacts.js';
+import { repairBlankNames, repairChatNamedContacts, syncContacts } from '../lib/contacts.js';
 import { backfillParticipants, repairContactlessConversations } from '../lib/participants.js';
 import { getDb, eq, and, asc, desc, lte, ne, inArray, isNotNull, sql, roleGrants } from '@comms/db';
 import {
@@ -529,7 +530,9 @@ async function classifyExisting() {
     for (const c of page) {
       const kind = classifyCorrespondent({
         address: addressFromChatGuid(c.providerChatGuid),
-        hasContactName: Boolean(c.contactId && nameById.get(c.contactId)?.trim()),
+        hasContactName: isRealContactName(c.contactId ? nameById.get(c.contactId) : null, [
+          addressFromChatGuid(c.providerChatGuid),
+        ]),
         inboundBodies: bodiesBy.get(c.id) ?? [],
         hasOutbound: repliedIn.has(c.id),
         isGroup: c.isGroup,
@@ -620,6 +623,9 @@ async function flushParkedSends(connectionId: string): Promise<number> {
   }
 }
 
+/** Where the last sync's outcome is parked for the settings UI to read. */
+const CONTACT_SYNC_RESULT_KEY = 'contact_sync_last_result';
+
 async function contactSync(connectionId: string) {
   const result = await syncContacts(connectionId);
   if (!result.macContactsVisible && result.fetched === 0) {
@@ -628,6 +634,26 @@ async function contactSync(connectionId: string) {
       'contact sync returned nothing — BlueBubbles may lack macOS Contacts permission',
     );
   }
+
+  /**
+   * Persist the outcome.
+   *
+   * The result has always been computed and then thrown away, so a sync that
+   * matched nothing — or that ran with macOS Contacts permission missing, and
+   * therefore returned no photos at all — was indistinguishable from a sync
+   * that worked. "Names and faces didn't appear" needs an answer somewhere a
+   * person can read it.
+   */
+  await getDb()
+    .insert(appSettings)
+    .values({
+      key: CONTACT_SYNC_RESULT_KEY,
+      value: { ...result, connectionId, at: new Date().toISOString() },
+    })
+    .onConflictDoUpdate({
+      target: appSettings.key,
+      set: { value: { ...result, connectionId, at: new Date().toISOString() } },
+    });
 }
 
 /** Marks the one-time rescue of attachments failed for want of a bucket. */
@@ -720,7 +746,9 @@ export async function processMaintenance(job: Job<MaintenanceJob>): Promise<void
     case 'sla':
       return checkSlaBreaches();
     case 'repairNames':
-      return repairBlankNames();
+      await repairBlankNames();
+      await repairChatNamedContacts();
+      return;
     case 'repairContacts':
       await repairContactlessConversations();
       await backfillParticipants();

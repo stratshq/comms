@@ -14,6 +14,7 @@ import {
   reactionFromAssociatedType,
   isVoiceMemoAttachment,
   classifyCorrespondent,
+  isRealContactName,
   enqueueAttachment,
   enqueueAi,
   publishEvent,
@@ -165,7 +166,9 @@ async function reclassifyKind(
 
   const kind = classifyCorrespondent({
     address: addressFromChatGuid(conv.providerChatGuid),
-    hasContactName: Boolean(contact?.displayName?.trim()),
+    hasContactName: isRealContactName(contact?.displayName, [
+      addressFromChatGuid(conv.providerChatGuid),
+    ]),
     inboundBodies: recent.map((r) => r.body),
     hasOutbound: Boolean(outbound),
     isGroup: conv.isGroup,
@@ -289,8 +292,11 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
   const authorContactId = bb.isFromMe
     ? null
     : bb.handle?.address
-      ? ((await resolveContact(bb.handle.address, chat?.displayName))?.contactId ??
-        conversationContactId)
+      ? // NOT `chat?.displayName` — the author is a person, and that string is
+        // the chat's title. Passing it named every new participant of a named
+        // group after the group itself, and the address-book sync then refused
+        // to correct it because the name no longer looked like an address.
+        ((await resolveContact(bb.handle.address))?.contactId ?? conversationContactId)
       : conversationContactId;
 
   const { conversation, created } = await ensureConversation(

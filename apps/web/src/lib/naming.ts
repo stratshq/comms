@@ -8,6 +8,13 @@
  * rendered blank.
  */
 
+/**
+ * The title `repairBlankNames` writes for an unnamed group. It is a
+ * last-resort label, not a name someone chose, so naming treats it as absent
+ * and prefers the member list when we have one.
+ */
+const GROUP_PLACEHOLDER = 'group conversation';
+
 /** Treat empty and whitespace-only strings as absent. */
 function present(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -79,12 +86,15 @@ export function conversationAddress(c: NameableConversation): string | null {
 
 /** The label to show for a conversation. Never returns an empty string. */
 export function conversationName(c: NameableConversation): string {
-  const contactName = present(c.contactName);
-  if (contactName) return contactName;
-
-  const title = present(c.title);
+  const rawTitle = present(c.title);
+  const title =
+    rawTitle && rawTitle.toLowerCase() === GROUP_PLACEHOLDER ? null : rawTitle;
 
   if (c.isGroup) {
+    // A contact name is never the answer for a group, even when one is
+    // attached. A group has participants, not a counterparty, so letting
+    // `contactName` win here labelled the whole thread with whichever member
+    // happened to get linked to it.
     if (title) return title;
     const names = (c.participants ?? [])
       .map((p) => present(p) && (formatAddress(p) ?? present(p)))
@@ -95,6 +105,9 @@ export function conversationName(c: NameableConversation): string {
     return 'Group conversation';
   }
 
+  const contactName = present(c.contactName);
+  if (contactName) return contactName;
+
   // A phone number beats a generic placeholder for a 1:1 thread.
   const address = formatAddress(conversationAddress(c));
   if (address) return address;
@@ -104,6 +117,11 @@ export function conversationName(c: NameableConversation): string {
 
 /** Initials source — avoids "UN" for every unnamed thread. */
 export function nameForInitials(c: NameableConversation): string {
+  // Same rule as `conversationName`: a group's initials come from the group.
+  if (c.isGroup) {
+    const t = present(c.title);
+    return t && t.toLowerCase() !== GROUP_PLACEHOLDER ? t : 'Group';
+  }
   const contactName = present(c.contactName);
   if (contactName) return contactName;
   const digits = conversationAddress(c)?.replace(/\D/g, '');

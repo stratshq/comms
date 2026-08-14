@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyCorrespondent, extractOtpCode } from '../src/correspondent.js';
+import { classifyCorrespondent, isRealContactName, extractOtpCode } from '../src/correspondent.js';
 
 describe('extractOtpCode', () => {
   it('pulls the code out of real verification messages', () => {
@@ -93,5 +93,41 @@ describe('classifyCorrespondent', () => {
     });
     expect(asCode).toBe('otp');
     expect(asPerson).toBe('unknown');
+  });
+});
+
+/**
+ * "Named" has to mean named by a human.
+ *
+ * Ingest creates every contact with its own address as the display name, so a
+ * plain non-empty check answered yes for the entire unknown pile — and the
+ * classifier's "a named contact is a person" escape hatch fired for all of it.
+ */
+describe('isRealContactName', () => {
+  it('rejects nothing at all', () => {
+    expect(isRealContactName(null)).toBe(false);
+    expect(isRealContactName('')).toBe(false);
+    expect(isRealContactName('   ')).toBe(false);
+  });
+
+  it('rejects a name that is just the contact’s own address', () => {
+    expect(isRealContactName('+15551234567', ['+15551234567'])).toBe(false);
+    expect(isRealContactName('them@work.com', ['them@work.com'])).toBe(false);
+  });
+
+  it('rejects a phone number in any formatting, address list or not', () => {
+    expect(isRealContactName('+1 (555) 123-4567')).toBe(false);
+    expect(isRealContactName('555.123.4567')).toBe(false);
+    expect(isRealContactName('15551234567')).toBe(false);
+  });
+
+  it('rejects a bare email address', () => {
+    expect(isRealContactName('someone@example.com')).toBe(false);
+  });
+
+  it('accepts an actual name', () => {
+    expect(isRealContactName('Ana Ruiz', ['+15551234567'])).toBe(true);
+    // A name that merely contains digits is still a name.
+    expect(isRealContactName('Studio 54', [])).toBe(true);
   });
 });

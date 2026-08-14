@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { relativeTime } from '@/lib/format';
 import {
   Dialog,
   DialogContent,
@@ -24,8 +25,19 @@ import {
   syncContactsNow,
 } from '@/server/actions/connections';
 
+export interface ContactSyncSummary {
+  at: string;
+  fetched: number;
+  created: number;
+  enriched: number;
+  avatarsStored: number;
+  reclassified: number;
+  macContactsVisible: boolean;
+}
+
 export function ConnectionCard({
   connection,
+  lastContactSync = null,
 }: {
   connection: {
     id: string;
@@ -36,6 +48,8 @@ export function ConnectionCard({
     lastError?: string | null;
     webhookRegistered: boolean;
   };
+  /** What the last contact sync actually did. Null before the first run. */
+  lastContactSync?: ContactSyncSummary | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -185,6 +199,37 @@ export function ConnectionCard({
           Disconnect
         </Button>
       </div>
+
+      {/* What the last sync actually did. The counts were computed and thrown
+          away before this, so "no names, no faces" had no explanation to
+          find — in particular a Mac that never granted Contacts permission
+          returns a roster with no photos in it and no error. */}
+      {lastContactSync && (
+        <div className="mt-3 rounded-lg border bg-secondary/40 px-2.5 py-2 text-[11.5px] leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground/80">
+            Last contact sync {relativeTime(lastContactSync.at)}
+          </span>
+          {' — '}
+          {lastContactSync.fetched.toLocaleString()} from the Mac,{' '}
+          {lastContactSync.created.toLocaleString()} new,{' '}
+          {lastContactSync.enriched.toLocaleString()} updated,{' '}
+          {lastContactSync.avatarsStored.toLocaleString()} photo
+          {lastContactSync.avatarsStored === 1 ? '' : 's'}.
+          {lastContactSync.reclassified > 0 && (
+            <>
+              {' '}
+              {lastContactSync.reclassified.toLocaleString()} moved out of Unknown.
+            </>
+          )}
+          {!lastContactSync.macContactsVisible && (
+            <span className="mt-1 block text-warning">
+              No macOS Contacts records came back — BlueBubbles is running without Contacts
+              permission, so names and photos from your address book can&rsquo;t reach Comms.
+              Grant it in System Settings → Privacy &amp; Security → Contacts, then sync again.
+            </span>
+          )}
+        </div>
+      )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">

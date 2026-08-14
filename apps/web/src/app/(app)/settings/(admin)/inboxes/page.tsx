@@ -6,7 +6,11 @@ import { Button } from '@/components/ui/button';
 import { ConnectBlueBubbles } from '@/components/settings/connect-bluebubbles';
 import { InboxActions } from '@/components/settings/inbox-actions';
 import { getInboxSummary } from '@/server/actions/inboxes';
-import { ConnectionCard } from '@/components/settings/connection-card';
+import {
+  ConnectionCard,
+  type ContactSyncSummary,
+} from '@/components/settings/connection-card';
+import { getSetting } from '@/server/settings';
 import { InboxSettings } from '@/components/settings/inbox-settings';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +18,8 @@ export const dynamic = 'force-dynamic';
 export default async function InboxesSettingsPage() {
   await requirePermissionPage('inboxes.manage');
   const inboxes = await listInboxes();
+  // Written by the worker at the end of every contact sync.
+  const lastContactSync = await getSetting<ContactSyncSummary>('contact_sync_last_result');
 
   // Per-inbox history counts, so a delete can warn about exactly what it costs.
   const summaries = await Promise.all(inboxes.map((i) => getInboxSummary(i.id)));
@@ -111,6 +117,7 @@ export default async function InboxesSettingsPage() {
                       lastError: c.lastError,
                       webhookRegistered: Boolean(c.providerWebhookId),
                     }}
+                    lastContactSync={lastContactSync ?? null}
                   />
                 ))
               )}

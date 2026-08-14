@@ -1,9 +1,16 @@
-import { getDb, eq, and } from '@comms/db';
-import { contacts, contactIdentities, channelConnections, conversations } from '@comms/db';
+import { getDb, eq, and, inArray, isNotNull, ne, sql } from '@comms/db';
+import {
+  contacts,
+  contactIdentities,
+  channelConnections,
+  conversations,
+  conversationParticipants,
+} from '@comms/db';
 import {
   type BBContact,
   normalizeAddress,
   addressMatchKey,
+  isRealContactName,
   logger,
 } from '@comms/core';
 import { loadConnection } from './connection.js';
@@ -52,11 +59,13 @@ function addressesOf(c: BBContact) {
  * True when a contact's name is just its own address — i.e. a placeholder
  * created by `resolveContact()` during ingest, safe to overwrite with a real
  * name from the address book.
+ *
+ * The inverse of the classifier's test, and deliberately the same one: if the
+ * two disagreed, a contact could be "named enough" to be filed as a person
+ * while still being "unnamed enough" for the sync to overwrite.
  */
 function isPlaceholderName(name: string | null, addresses: string[]): boolean {
-  if (!name) return true;
-  const n = name.trim().toLowerCase();
-  return addresses.some((a) => a.toLowerCase() === n) || /^\+?[\d\s()\-.]+$/.test(n);
+  return !isRealContactName(name, addresses);
 }
 
 /**
@@ -100,6 +109,100 @@ export async function repairBlankNames(): Promise<void> {
   }
 }
 
+/**
+ * Move threads out of "Unknown numbers" once their contact has a real name.
+ *
+ * The classifier's first escape hatch is "a named contact is a person", but it
+ * only ever ran on inbound traffic — so a number the address book named this
+ * morning stayed filed under Unknown until they happened to text again, which
+ * for a quiet contact is never. This closes that loop from the other side.
+ *
+ * Groups are excluded because they are always `person` anyway, and it never
+ * touches `otp`/`automated`: those are earned from message content, and a
+ * name on the sender doesn't make a verification code a conversation.
+ */
+async function reclassifyNamedContacts(): Promise<number> {
+  const db = getDb();
+
+  const candidates = await db
+    .select({
+      id: conversations.id,
+      displayName: contacts.displayName,
+      value: contactIdentities.value,
+    })
+    .from(conversations)
+    .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+    .leftJoin(contactIdentities, eq(contactIdentities.contactId, contacts.id))
+    .where(
+      and(
+        eq(conversations.kind, 'unknown'),
+        eq(conversations.isGroup, false),
+        isNotNull(conversations.contactId),
+      ),
+    );
+
+  // One contact can have several identities, so the join fans out; keep the
+  // addresses per conversation and decide once.
+  const byConversation = new Map<string, { displayName: string | null; addresses: string[] }>();
+  for (const row of candidates) {
+    const entry = byConversation.get(row.id) ?? { displayName: row.displayName, addresses: [] };
+    if (row.value) entry.addresses.push(row.value);
+    byConversation.set(row.id, entry);
+  }
+
+  const promote = Array.from(byConversation.entries())
+    .filter(([, v]) => isRealContactName(v.displayName, v.addresses))
+    .map(([id]) => id);
+  if (promote.length === 0) return 0;
+
+  await db
+    .update(conversations)
+    .set({ kind: 'person' })
+    .where(and(inArray(conversations.id, promote), eq(conversations.kind, 'unknown')));
+  log.info({ count: promote.length }, 'named contacts moved out of Unknown');
+  return promote.length;
+}
+
+/**
+ * Undo names that were the chat's, not the person's.
+ *
+ * Ingest used to pass the chat's display name when creating a contact for a
+ * message author, so every new participant of a named group was christened
+ * after the group. The sync could never correct it either: the name doesn't
+ * look like an address, so `isPlaceholderName` calls it real and leaves it
+ * alone. Blanking these lets the address book — or the address itself — take
+ * over on the next pass.
+ *
+ * Narrow on purpose: only a contact whose name exactly matches the title of a
+ * group they are actually in. Someone genuinely called "Book Club" who is in
+ * a group chat called "Book Club" is a coincidence this will get wrong once,
+ * and the fix is to type their name in.
+ */
+export async function repairChatNamedContacts(): Promise<number> {
+  const db = getDb();
+  const cleared = await db
+    .update(contacts)
+    .set({ displayName: null })
+    .where(
+      sql`exists (
+        select 1
+        from ${conversationParticipants} cp
+        join ${contactIdentities} ci on ci.id = cp.contact_identity_id
+        join ${conversations} conv on conv.id = cp.conversation_id
+        where ci.contact_id = ${contacts.id}
+          and conv.is_group = true
+          and conv.title is not null
+          and lower(btrim(conv.title)) = lower(btrim(${contacts.displayName}))
+      )`,
+    )
+    .returning({ id: contacts.id });
+
+  if (cleared.length) {
+    log.info({ count: cleared.length }, 'cleared contacts named after their group chat');
+  }
+  return cleared.length;
+}
+
 export interface ContactSyncResult {
   fetched: number;
   /** Address-book entries that yielded at least one usable address. */
@@ -109,6 +212,10 @@ export interface ContactSyncResult {
   skippedCollisions: number;
   skippedNoName: number;
   alreadyNamed: number;
+  /** Photos stored this run — the number to look at when faces don't appear. */
+  avatarsStored: number;
+  /** Threads moved out of "Unknown" because their contact now has a name. */
+  reclassified: number;
   macContactsVisible: boolean;
 }
 
@@ -151,6 +258,8 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
     skippedCollisions: 0,
     skippedNoName: 0,
     alreadyNamed: 0,
+    avatarsStored: 0,
+    reclassified: 0,
     // If macOS Contacts permission was never granted, the 'api' half is empty
     // and we'd silently sync almost nothing — surface that to the operator.
     macContactsVisible: roster.some((c) => c.sourceType === 'api'),
@@ -182,7 +291,9 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
       kind: contactIdentities.kind,
       contactId: contactIdentities.contactId,
       displayName: contacts.displayName,
-      avatarUrl: contacts.avatarUrl,
+      // Presence, not the bytes: pulling every avatar into memory to decide
+      // whether to fetch avatars would defeat the point.
+      hasAvatar: sql<boolean>`${contacts.avatarData} is not null`,
     })
     .from(contactIdentities)
     .innerJoin(contacts, eq(contacts.id, contactIdentities.contactId));
@@ -197,7 +308,10 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
     .filter(([key, entry]) => {
       const k = knownByKey.get(key);
       if (!k) return true; // new contact
-      return !k.avatarUrl || isPlaceholderName(k.displayName, [entry.address.value]);
+      // Keyed on avatarData, not avatarUrl: rows synced before avatars moved
+      // into the database have a URL pointing at an S3 object this install may
+      // have no way to read, and would otherwise never be refetched.
+      return !k.hasAvatar || isPlaceholderName(k.displayName, [entry.address.value]);
     })
     .map(([, entry]) => entry.address.raw);
 
@@ -245,12 +359,13 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
       } else if (name) {
         result.alreadyNamed += 1;
       }
-      if (!existing.avatarUrl && avatarByAddress.has(key)) {
+      if (!existing.hasAvatar && avatarByAddress.has(key)) {
         const avatar = avatarPatch(avatarByAddress.get(key)!);
         if (avatar) {
           patch.avatarData = avatar.avatarData;
           patch.avatarMime = avatar.avatarMime;
           patch.avatarUrl = `/api/avatars/${existing.contactId}`;
+          result.avatarsStored += 1;
         }
       }
       if (Object.keys(patch).length > 1) {
@@ -296,6 +411,7 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
           .update(contacts)
           .set({ ...avatar, avatarUrl: `/api/avatars/${contactId}` })
           .where(eq(contacts.id, contactId));
+        result.avatarsStored += 1;
       }
     }
 
@@ -309,11 +425,12 @@ export async function syncContacts(connectionId: string): Promise<ContactSyncRes
       kind: norm.kind,
       contactId,
       displayName: name,
-      avatarUrl: null,
+      hasAvatar: Boolean(avatarByAddress.get(key)),
     });
   }
 
   await repairBlankNames();
+  result.reclassified = await reclassifyNamedContacts();
 
   await db
     .update(channelConnections)

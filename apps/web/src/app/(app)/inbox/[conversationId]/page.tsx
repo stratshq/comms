@@ -87,6 +87,10 @@ export default async function ConversationPage({
     chatGuid: conversation.providerChatGuid,
     title: conversation.title,
     isGroup: conversation.isGroup,
+    // An unnamed group reads as its members rather than "Group conversation".
+    // Only this page has them loaded; the list pane doesn't, and paying for
+    // the join on every row is not worth it there.
+    participants: participants.map((p) => p.name ?? p.rawAddress ?? p.address),
   });
   const contactIdentities =
     conversation.contact?.identities

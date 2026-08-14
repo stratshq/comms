@@ -42,10 +42,42 @@ const CODE_RE = /\b(?:[A-Z]-)?\d{4,8}\b/;
 const AUTOMATED_WORDS =
   /\b(?:do not reply|do-not-reply|no[- ]reply|noreply|automated message|this is an automated|unsubscribe|reply stop to|txt stop|msg&data rates|message and data rates|your (?:order|package|delivery|shipment|prescription|appointment)\b.*\b(?:is|has|will)\b)/i;
 
+/**
+ * Has a human actually named this contact?
+ *
+ * Not the same question as "is displayName non-empty". Ingest creates every
+ * contact with its own address as the display name, so the column is
+ * essentially never blank — meaning a naive check answers yes for a number
+ * nobody has ever identified, and the classifier's "a named contact is a
+ * person" escape hatch fires for the entire unknown pile.
+ *
+ * Shared with the contact sync, which needs the same distinction to know
+ * whether an address-book name is safe to write over.
+ */
+export function isRealContactName(
+  displayName: string | null | undefined,
+  addresses: (string | null | undefined)[] = [],
+): boolean {
+  const name = displayName?.trim();
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  if (addresses.some((a) => a?.trim().toLowerCase() === lower)) return false;
+  // A bare phone number, however formatted, is an address wearing a name's
+  // clothes — "+1 (555) 123-4567" is not something a person chose to call them.
+  if (/^\+?[\d\s()\-.]+$/.test(name)) return false;
+  // An email address is likewise the handle, not a name.
+  if (/^[^\s@]+@[^\s@]+$/.test(name)) return false;
+  return true;
+}
+
 export interface KindSignals {
   /** The sender's address (phone/email/handle) as we know it. */
   address?: string | null;
-  /** Whether a human has given this contact a name. */
+  /**
+   * Whether a human has given this contact a real name — see
+   * `isRealContactName`. A contact named after its own phone number does not
+   * count, or nothing would ever be classified at all.
+   */
   hasContactName?: boolean;
   /** Recent inbound bodies, newest first. A few is plenty. */
   inboundBodies?: (string | null | undefined)[];

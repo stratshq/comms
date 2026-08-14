@@ -128,3 +128,67 @@ describe('naming survives a conversation with no contact row at all', () => {
     );
   });
 });
+
+/**
+ * A group is its members, never one of them.
+ *
+ * Regression: `conversationName` checked `contactName` before anything else,
+ * so a group that had somehow been linked to a contact rendered under that
+ * one member's name — the whole thread relabelled as a single person.
+ */
+describe('group naming never borrows a member', () => {
+  it('ignores contactName for a group, even when one is attached', () => {
+    expect(
+      conversationName({
+        contactName: 'Ana Ruiz',
+        isGroup: true,
+        title: 'Weekend Trip',
+        chatGuid: 'iMessage;+;chat123',
+      }),
+    ).toBe('Weekend Trip');
+  });
+
+  it('falls to members rather than a member-shaped contact name', () => {
+    expect(
+      conversationName({
+        contactName: 'Ana Ruiz',
+        isGroup: true,
+        title: null,
+        participants: ['Ana Ruiz', 'Ben Cole', 'Cara Diaz'],
+      }),
+    ).toBe('Ana Ruiz, Ben Cole +1');
+  });
+
+  it('treats the "Group conversation" placeholder as no title', () => {
+    // repairBlankNames writes that string; it is a fallback label, not a name
+    // someone chose, so real member names must still win over it.
+    expect(
+      conversationName({
+        isGroup: true,
+        title: 'Group conversation',
+        participants: ['Ana Ruiz', 'Ben Cole'],
+      }),
+    ).toBe('Ana Ruiz, Ben Cole');
+  });
+
+  it('still says "Group conversation" when there is nothing else', () => {
+    expect(conversationName({ isGroup: true, title: 'Group conversation' })).toBe(
+      'Group conversation',
+    );
+  });
+
+  it('keeps using the contact name for a one-to-one', () => {
+    expect(
+      conversationName({ contactName: 'Ana Ruiz', isGroup: false, chatGuid: 'iMessage;-;+15551234567' }),
+    ).toBe('Ana Ruiz');
+  });
+
+  it('takes group initials from the group, not a member', () => {
+    expect(nameForInitials({ contactName: 'Ana Ruiz', isGroup: true, title: 'Weekend Trip' })).toBe(
+      'Weekend Trip',
+    );
+    expect(nameForInitials({ contactName: 'Ana Ruiz', isGroup: true, title: 'Group conversation' })).toBe(
+      'Group',
+    );
+  });
+});
