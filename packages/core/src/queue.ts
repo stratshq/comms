@@ -59,15 +59,22 @@ export type MaintenanceJob =
   | { type: 'seedDefaultFolders' };
 
 /**
- * Background AI work. `precompute` runs on every inbound message so the draft
- * reply and catch-up summary are already waiting when an agent opens the
- * conversation — the difference between "click and wait" and Tab-to-accept.
+ * Background AI work. `precompute` prepares the draft reply and catch-up
+ * summary so both are already waiting when an agent opens the conversation —
+ * the difference between "click and wait" and Tab-to-accept. `triage` keeps
+ * the conversation's topic, sentiment and tags current.
+ *
+ * Both are queued per inbound message and both cost a model call, so both go
+ * through {@link enqueueAiForConversation} rather than `enqueueAi` directly.
  */
 export type AiJob =
   | { type: 'triage'; conversationId: string }
   | { type: 'precompute'; conversationId: string }
   /** Group active conversations into named bundles (Shortwave-style). */
   | { type: 'bundle' };
+
+/** The AI jobs that are about one conversation, and so can be collapsed per thread. */
+export type ConversationAiJob = Extract<AiJob, { conversationId: string }>;
 
 // ---- Queue singletons -------------------------------------------------------
 
@@ -115,6 +122,42 @@ export async function enqueueMaintenance(job: MaintenanceJob, opts?: JobsOptions
 
 export async function enqueueAi(job: AiJob, opts?: JobsOptions) {
   return aiQueue().add('ai', job, opts);
+}
+
+/**
+ * Queue AI work for one conversation, at most once per burst.
+ *
+ * Twelve messages arriving in a group chat inside a minute are one change in
+ * the thread, not twelve — but each used to buy its own pair of model calls.
+ * A delayed job under a per-conversation `jobId` collapses the burst: the
+ * first message schedules the work, the rest are swallowed by BullMQ's
+ * duplicate-id check, and the job that eventually runs reads the thread as it
+ * stands once the typing has stopped.
+ *
+ * `removeOnComplete` is forced ON for exactly this reason. The queue's default
+ * keeps finished jobs around for an hour, and a *completed* job still occupies
+ * its id — so with the default a thread could be enriched once and then stay
+ * silently stale for the rest of the hour. Deleting on completion frees the id
+ * the moment the work is done.
+ *
+ * One narrow gap remains by design: a message that lands while the job is
+ * already running is swallowed too, because the id is still taken. The
+ * processor re-reads the thread when it starts, so it usually picks the
+ * message up anyway, and the next inbound message re-arms the job regardless.
+ */
+export async function enqueueAiForConversation(
+  job: ConversationAiJob,
+  opts: {
+    /** How long to let the thread settle before the job runs. */
+    delayMs: number;
+  },
+) {
+  return aiQueue().add('ai', job, {
+    jobId: `${job.type}-${job.conversationId}`,
+    delay: opts.delayMs,
+    removeOnComplete: true,
+    removeOnFail: true,
+  });
 }
 
 export { Queue };
