@@ -1,17 +1,47 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { aiStructured, aiText } from './client.js';
-import { formatTranscript, type TranscriptMessage } from './transcript.js';
+import { formatTranscript, RECENT_MARKER, type TranscriptMessage } from './transcript.js';
+
+/**
+ * How many trailing messages count as "the conversation you are in", as
+ * opposed to the history behind it.
+ *
+ * Small on purpose. A thread that has been running for months is mostly about
+ * things that already happened; the part you are actually replying to is the
+ * last handful of texts.
+ */
+export const RECENT_WINDOW = 10;
+
+/**
+ * The rule every drafting prompt needs and none of them had.
+ *
+ * A long thread is not one topic — it is a stack of settled ones with a live
+ * one on top. Left to itself the model treats the whole transcript as equally
+ * true and answers a question that was resolved in March.
+ */
+const RECENCY_RULES = [
+  `The transcript runs oldest to newest. Lines like [3 months ago] mark how old the messages beneath them are, and everything below "${RECENT_MARKER}" is the live exchange.`,
+  "Reply to the LAST message. That is what is on the other person's mind; everything above it is background.",
+  'Old messages describe a situation that has probably already resolved — plans were carried out, questions were answered, problems were fixed, people moved, things got bought. Never treat something raised months ago as still open or still pending unless the recent messages show that it is.',
+  'Where old and recent context conflict, the recent context is the truth. Do not reintroduce old topics, old logistics or old questions.',
+].join(' ');
+
+/** How the reply should sound: like this thread, not like a template. */
+const VOICE_RULES =
+  'Match the register of the recent messages — their length, formality, punctuation and greeting habits. If the thread reads as quick casual texting between people who know each other, write like that; a polished paragraph in a thread of one-line texts is the wrong answer even when the content is right. Never invent facts, prices, dates, times, order numbers or commitments; if something is missing, ask for it.';
 
 /** A tight catch-up summary for an agent opening a conversation. */
 export async function summarizeConversation(input: {
   contactName?: string | null;
   messages: TranscriptMessage[];
+  now?: Date;
 }): Promise<string> {
   return aiText({
     maxTokens: 600,
     system:
-      "You are an assistant for a customer-support team. Summarize the conversation so an agent can catch up in seconds. Lead with the customer's core ask and the current status, then the key details. 2–4 sentences, plain text, no preamble.",
-    user: formatTranscript(input.messages, input.contactName) || 'No messages yet.',
+      'You are an assistant for a customer-support team. Summarize the conversation so an agent can catch up in seconds. Lead with where things stand RIGHT NOW — the open ask and the current status — then only the older detail still needed to act on it. Age markers like [3 months ago] tell you what is stale; settled history is not worth a sentence. 2–4 sentences, plain text, no preamble.',
+    user:
+      formatTranscript(input.messages, input.contactName, { now: input.now }) || 'No messages yet.',
   });
 }
 
@@ -21,8 +51,14 @@ export async function suggestReply(input: {
   messages: TranscriptMessage[];
   brandVoiceExamples?: string[];
   guidance?: string;
+  now?: Date;
 }): Promise<string> {
-  const parts = [formatTranscript(input.messages, input.contactName) || 'No messages yet.'];
+  const parts = [
+    formatTranscript(input.messages, input.contactName, {
+      now: input.now,
+      recentCount: RECENT_WINDOW,
+    }) || 'No messages yet.',
+  ];
   if (input.brandVoiceExamples?.length) {
     parts.push(
       '\n\nExamples of how our team writes (match this tone):\n' +
@@ -33,10 +69,74 @@ export async function suggestReply(input: {
 
   return aiText({
     maxTokens: 800,
-    system:
-      "You are a customer-support agent drafting the next reply to send to the customer. Output only the message body — no salutation placeholders, no subject line, no quotation marks, no commentary. Be warm, concise, and genuinely helpful. Match the team's tone from any examples provided. Never invent facts, order numbers, prices, or commitments you cannot verify; if information is missing, ask the customer for it.",
+    system: [
+      'You are drafting the next message to send in an ongoing conversation.',
+      RECENCY_RULES,
+      VOICE_RULES,
+      'Output only the message body — no salutation placeholders, no subject line, no quotation marks, no commentary.',
+    ].join(' '),
     user: parts.join(''),
   });
+}
+
+/**
+ * Polish a reply the user has already written, rather than writing one for them.
+ *
+ * The safer half of the feature: the human has supplied the intent, the facts
+ * and the commitments, so the model's only job is to make the wording better —
+ * which is also the job it cannot get wrong in a way that reaches the customer
+ * as a promise nobody made. Everything it must not do is spelled out, because
+ * "improve" reads to a model as an invitation to add.
+ */
+export async function improveDraft(input: {
+  contactName?: string | null;
+  messages: TranscriptMessage[];
+  draft: string;
+  brandVoiceExamples?: string[];
+  guidance?: string;
+  now?: Date;
+}): Promise<string> {
+  const draft = input.draft.trim();
+  if (!draft) return '';
+
+  const parts = [
+    formatTranscript(input.messages, input.contactName, {
+      now: input.now,
+      recentCount: RECENT_WINDOW,
+    }) || 'No messages yet.',
+  ];
+  if (input.brandVoiceExamples?.length) {
+    parts.push(
+      '\n\nExamples of how our team writes (match this tone):\n' +
+        input.brandVoiceExamples.map((e) => `- ${e}`).join('\n'),
+    );
+  }
+  if (input.guidance) parts.push(`\n\nWhat to change: ${input.guidance}`);
+  parts.push(`\n\nMy draft reply, to rewrite:\n"""\n${draft}\n"""`);
+
+  const out = await aiText({
+    maxTokens: 800,
+    system: [
+      'You rewrite a message the user has already drafted, so it reads better before they send it. The conversation is given for context only.',
+      RECENCY_RULES,
+      "Keep the draft's meaning, facts, numbers, dates, commitments and answers EXACTLY as written — they came from a person who knows things you do not.",
+      'Do not add information, offers, questions, apologies, pleasantries or sign-offs that are not already there. Do not make it longer. Shorter is usually better.',
+      'Fix wording, order, clarity, tone, typos and grammar only.',
+      VOICE_RULES,
+      'If the draft is already good, return it unchanged.',
+      'Output only the rewritten message — no quotation marks, no commentary, no explanation of what you changed.',
+    ].join(' '),
+    user: parts.join(''),
+  });
+
+  // A model that answers with nothing, or wraps the message in the quotes it
+  // was shown, must not silently eat what the user wrote. Curly quotes are in
+  // the class too — a model handed `"""` often answers in typographic ones.
+  const cleaned = out
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .trim();
+  return cleaned || draft;
 }
 
 export interface ConversationTriage {
@@ -76,12 +176,14 @@ const TRIAGE_TOOL: Anthropic.Tool = {
 export async function triageConversation(input: {
   contactName?: string | null;
   messages: TranscriptMessage[];
+  now?: Date;
 }): Promise<ConversationTriage> {
   const data = (await aiStructured({
     maxTokens: 600,
-    system: 'You triage inbound customer-support conversations. Classify accurately and concisely.',
+    system:
+      'You triage inbound customer-support conversations. Classify accurately and concisely. Judge the conversation by where it stands now, not by how it began: age markers like [3 months ago] mark history, and a thread that opened as urgent months ago is not urgent today unless the recent messages say so.',
     user: `Triage this conversation:\n\n${
-      formatTranscript(input.messages, input.contactName) || 'No messages yet.'
+      formatTranscript(input.messages, input.contactName, { now: input.now }) || 'No messages yet.'
     }`,
     tool: TRIAGE_TOOL,
   })) as Partial<ConversationTriage>;
@@ -253,7 +355,7 @@ export async function answerFromArchive(input: {
   const answer = await aiText({
     maxTokens: 700,
     system: [
-      'You answer questions about the user\'s own text-message history.',
+      "You answer questions about the user's own text-message history.",
       'You are given numbered excerpts retrieved from their messages. Answer ONLY from those excerpts.',
       'If the excerpts do not contain the answer, say so plainly and say what you did find instead — never fill the gap from general knowledge, and never guess at a number, date, price or commitment.',
       'Cite the excerpts you used inline as [1], [2]. Quote short fragments where the exact wording matters.',
@@ -281,6 +383,7 @@ export async function completeMessage(input: {
   contactName?: string | null;
   messages: TranscriptMessage[];
   prefix: string;
+  now?: Date;
 }): Promise<string> {
   const out = await aiText({
     maxTokens: 60,
@@ -289,10 +392,16 @@ export async function completeMessage(input: {
       'Output ONLY the continuation — the characters that follow their text. Do not repeat what they already wrote.',
       'Finish the current sentence and stop. At most about twelve words.',
       'Match their voice, casing and punctuation exactly. Texting is informal; do not make it more formal than the thread.',
+      `The transcript runs oldest to newest; everything below "${RECENT_MARKER}" is the live exchange, and older messages describe things that have most likely already been settled.`,
       'Never invent facts, prices, dates, times or commitments. If the natural continuation would require a fact you do not have, output nothing.',
       'If their text already reads as complete, output nothing.',
     ].join(' '),
-    user: `${formatTranscript(input.messages, input.contactName) || 'No messages yet.'}\n\nI am typing this reply and stopped mid-thought:\n"${input.prefix}"\n\nContinuation:`,
+    user: `${
+      formatTranscript(input.messages, input.contactName, {
+        now: input.now,
+        recentCount: RECENT_WINDOW,
+      }) || 'No messages yet.'
+    }\n\nI am typing this reply and stopped mid-thought:\n"${input.prefix}"\n\nContinuation:`,
   });
   // The model sometimes echoes the prefix despite the instruction.
   const cleaned = out.startsWith(input.prefix) ? out.slice(input.prefix.length) : out;

@@ -9,7 +9,7 @@ import {
   type BundleCandidate,
   type TranscriptMessage,
 } from '@comms/ai';
-import { getDb, eq, and, asc, desc, inArray, isNull, sql } from '@comms/db';
+import { getDb, eq, and, desc, inArray, isNull, sql } from '@comms/db';
 import {
   conversations,
   messages,
@@ -18,8 +18,26 @@ import {
   bundles,
   appSettings,
 } from '@comms/db';
+import {
+  isTriageStale,
+  modelMaySetPriority,
+  shouldDraftReply,
+  shouldTriage,
+} from '../lib/ai-gating.js';
 
 const log = logger.child({ module: 'ai' });
+
+/**
+ * How much of the thread the model sees — the NEWEST messages, not the oldest.
+ *
+ * This used to order ascending, which on any thread longer than the window fed
+ * the model the first forty messages it ever received and none of the ones
+ * being replied to. A year-old conversation was triaged and answered as it
+ * stood on day one. Rows are over-fetched because system messages and empty
+ * bodies are dropped afterwards and would otherwise eat into the window.
+ */
+const TRANSCRIPT_MESSAGES = 40;
+const TRANSCRIPT_FETCH = 60;
 
 /** Load the recent transcript for a conversation in the AI package's shape. */
 async function loadTranscript(conversationId: string): Promise<{
@@ -34,17 +52,22 @@ async function loadTranscript(conversationId: string): Promise<{
 
   const rows = await db.query.messages.findMany({
     where: and(eq(messages.conversationId, conversationId), eq(messages.isRetracted, false)),
-    orderBy: [asc(messages.createdAt)],
-    limit: 40,
+    orderBy: [desc(messages.createdAt)],
+    limit: TRANSCRIPT_FETCH,
     with: { authorUser: { columns: { name: true } } },
   });
 
   const transcript: TranscriptMessage[] = rows
+    // Back to chronological: the prompts all say "oldest first", and an age
+    // marker only means anything if the messages under it run forwards.
+    .reverse()
     .filter((m) => m.authorType !== 'system' && (m.body ?? '').trim())
+    .slice(-TRANSCRIPT_MESSAGES)
     .map((m) => ({
       role: m.authorType === 'contact' ? 'contact' : m.isPrivateNote ? 'note' : 'agent',
       author: m.authorUser?.name ?? null,
       text: m.body ?? '',
+      at: m.createdAt,
     }));
 
   return { transcript, contactName: conv?.contact?.displayName ?? null };
@@ -70,10 +93,19 @@ async function mergeAiMetadata(conversationId: string, patch: Record<string, unk
 /**
  * Pre-compute the catch-up summary and next draft reply so both are waiting
  * before an agent opens the conversation — the difference between "click and
- * wait" and Tab-to-accept. Skipped when the last message is already ours.
+ * wait" and Tab-to-accept.
+ *
+ * Two model calls, so it is worth being sure the thread deserves them: see
+ * `shouldDraftReply` for who does and does not.
  */
 async function precompute(conversationId: string): Promise<void> {
   const db = getDb();
+
+  const conv = await db.query.conversations.findFirst({
+    where: eq(conversations.id, conversationId),
+    columns: { kind: true, status: true, mutedAt: true },
+  });
+  if (!conv) return;
 
   const [latest] = await db
     .select({ direction: messages.direction })
@@ -81,7 +113,17 @@ async function precompute(conversationId: string): Promise<void> {
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.createdAt))
     .limit(1);
-  if (!latest || latest.direction === 'outbound') return;
+
+  if (
+    !shouldDraftReply({
+      kind: conv.kind,
+      status: conv.status,
+      mutedAt: conv.mutedAt,
+      lastDirection: latest?.direction ?? null,
+    })
+  ) {
+    return;
+  }
 
   const { transcript, contactName } = await loadTranscript(conversationId);
   if (transcript.length === 0) return;
@@ -122,12 +164,33 @@ async function precompute(conversationId: string): Promise<void> {
   log.info({ conversationId, summary: Boolean(summary), draft: Boolean(draft) }, 'ai precomputed');
 }
 
+/**
+ * Classify the conversation as it stands: priority, topic, sentiment, tags.
+ *
+ * Runs on new inbound activity, not only at creation. It used to fire exactly
+ * once, on the first message a conversation ever received, which left every
+ * thread permanently described by how it opened — a thread that began "quick
+ * question about pricing" and turned into a two-month complaint still read
+ * back as `sentiment: positive`, and no folder built on that field could tell.
+ */
 async function triage(conversationId: string): Promise<void> {
   const db = getDb();
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
   });
   if (!conv) return;
+  if (!shouldTriage(conv.kind)) return;
+
+  const ai = ((conv.metadata ?? {}) as { ai?: Record<string, unknown> }).ai ?? {};
+  const triagedAt = typeof ai.triagedAt === 'string' ? new Date(ai.triagedAt) : null;
+  if (
+    !isTriageStale({
+      triagedAt: triagedAt && !Number.isNaN(triagedAt.getTime()) ? triagedAt : null,
+      lastInboundAt: conv.lastInboundAt,
+    })
+  ) {
+    return;
+  }
 
   const { transcript, contactName } = await loadTranscript(conversationId);
   if (transcript.length === 0) return;
@@ -140,8 +203,14 @@ async function triage(conversationId: string): Promise<void> {
     return;
   }
 
-  // Priority only when it hasn't been set manually (still default 'normal').
-  if (conv.priority === 'normal' && result.priority !== 'normal') {
+  const modelChose = ai.priority;
+  if (
+    modelMaySetPriority({
+      current: conv.priority,
+      modelChose: typeof modelChose === 'string' ? (modelChose as typeof conv.priority) : null,
+    }) &&
+    result.priority !== conv.priority
+  ) {
     await db
       .update(conversations)
       .set({ priority: result.priority })
@@ -153,11 +222,24 @@ async function triage(conversationId: string): Promise<void> {
     topic: result.topic,
     sentiment: result.sentiment,
     suggestedTags: result.suggestedTags,
+    // What the model chose, recorded whether or not it was applied — next time
+    // it is how we tell our own value from one a human has since set.
+    priority: result.priority,
+    triagedAt: new Date().toISOString(),
   });
 
   // Apply suggested tags that already exist; queue the rest for admin approval
   // instead of silently dropping them. Tags are never auto-created.
   if (result.suggestedTags.length) {
+    // `tagSuggestions.count` means "how many CONVERSATIONS wanted this tag",
+    // which was safe to increment blindly while triage ran once per thread.
+    // Now that it re-runs, a chatty conversation would vote for the same name
+    // over and over and float it to the top of the admin's list on its own.
+    const alreadySuggested = new Set(
+      (Array.isArray(ai.suggestedTags) ? ai.suggestedTags : []).map((t) =>
+        String(t).toLowerCase().trim(),
+      ),
+    );
     const allTags = await db.query.tags.findMany();
     const byName = new Map(allTags.map((t) => [t.name.toLowerCase(), t.id]));
     for (const rawName of result.suggestedTags) {
@@ -165,11 +247,13 @@ async function triage(conversationId: string): Promise<void> {
       if (!name) continue;
       const tagId = byName.get(name);
       if (tagId) {
+        // Re-applied every time on purpose: a tag an admin created since the
+        // last run should land on the thread that asked for it.
         await db
           .insert(conversationTags)
           .values({ conversationId: conv.id, tagId })
           .onConflictDoNothing();
-      } else {
+      } else if (!alreadySuggested.has(name)) {
         await db
           .insert(tagSuggestions)
           .values({ name, count: 1 })
@@ -192,10 +276,7 @@ async function bundleSweep(): Promise<void> {
   const db = getDb();
 
   const rows = await db.query.conversations.findMany({
-    where: and(
-      inArray(conversations.status, ['open', 'pending']),
-      isNull(conversations.bundleId),
-    ),
+    where: and(inArray(conversations.status, ['open', 'pending']), isNull(conversations.bundleId)),
     orderBy: [desc(conversations.lastMessageAt)],
     limit: 120,
     columns: { id: true, title: true, lastMessagePreview: true, metadata: true },

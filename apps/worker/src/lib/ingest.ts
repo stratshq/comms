@@ -17,7 +17,7 @@ import {
   classifyCorrespondent,
   isRealContactName,
   enqueueAttachment,
-  enqueueAi,
+  enqueueAiForConversation,
   publishEvent,
   logger,
 } from '@comms/core';
@@ -32,6 +32,17 @@ import { onInboundSlaCsat } from './sla.js';
 import { runAutomations } from './automations.js';
 
 const log = logger.child({ module: 'ingest' });
+
+/**
+ * How long each kind of AI work waits for the thread to stop moving.
+ *
+ * The draft is the shorter of the two because somebody may be about to open
+ * the conversation and expects it to be there; triage feeds folders, priority
+ * and tags, which nobody watches in real time and which are better computed
+ * once the whole burst has landed.
+ */
+const PRECOMPUTE_DEBOUNCE_MS = 30_000;
+const TRIAGE_DEBOUNCE_MS = 5 * 60_000;
 
 /** Standard carrier opt-out / opt-in keywords (TCPA / CTIA). Exact match only. */
 const OPT_OUT_RE = /^\s*(stop|stopall|stop all|unsubscribe|cancel|end|quit|revoke)\s*$/i;
@@ -452,22 +463,31 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
     }
     await onInboundSlaCsat(conversation.id, conversation, bb.text).catch(() => {});
     await runAutomations('message_received', conversation.id, { bodyText: bb.text }).catch(() => {});
-    // Have a draft + summary waiting before an agent ever opens this.
     if (await isAiConfigured()) {
-      await enqueueAi({ type: 'precompute', conversationId: conversation.id }).catch(() => {});
+      // Have a draft + summary waiting before an agent ever opens this, and
+      // keep the thread's topic/sentiment/tags describing where it stands now
+      // rather than where it started. Both are debounced and both decide for
+      // themselves whether this thread is worth a model call — see the
+      // processor's skip rules.
+      await enqueueAiForConversation(
+        { type: 'precompute', conversationId: conversation.id },
+        { delayMs: PRECOMPUTE_DEBOUNCE_MS },
+      ).catch(() => {});
+      await enqueueAiForConversation(
+        { type: 'triage', conversationId: conversation.id },
+        { delayMs: TRIAGE_DEBOUNCE_MS },
+      ).catch(() => {});
     }
   }
 
   // For a brand-new conversation: run new-conversation automations, then
-  // auto-assign (if still unassigned) and auto-triage (if AI on).
+  // auto-assign (if still unassigned). Triage is queued above for every
+  // inbound message, this one included.
   if (created && isInbound) {
     await runAutomations('conversation_created', conversation.id, { bodyText: bb.text }).catch(
       () => {},
     );
     await maybeAutoAssign(conversation.id, conn.inboxId).catch(() => {});
-    if (await isAiConfigured()) {
-      await enqueueAi({ type: 'triage', conversationId: conversation.id }).catch(() => {});
-    }
   }
 }
 
