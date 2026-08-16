@@ -483,7 +483,10 @@ export async function ingestNewMessage(connectionId: string, bb: BBMessage): Pro
   // For a brand-new conversation: run new-conversation automations, then
   // auto-assign (if still unassigned). Triage is queued above for every
   // inbound message, this one included.
-  if (created && isInbound) {
+  // `!reaction` for the same reason as the inbound block above: if a tapback
+  // is the first thing we ingest for a chat, a heart must not be what runs
+  // the new-conversation automations and assigns someone to it.
+  if (created && isInbound && !reaction) {
     await runAutomations('conversation_created', conversation.id, { bodyText: bb.text }).catch(
       () => {},
     );
