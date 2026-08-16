@@ -192,3 +192,42 @@ describe('group naming never borrows a member', () => {
     );
   });
 });
+
+/**
+ * Ingest names every new contact after its own phone number, so "has a
+ * contact name" is not the same as "has a name". Preferring the placeholder
+ * rendered threads as a raw `+16268233242` when `(626) 823-3242` was one call
+ * away.
+ */
+describe('placeholder contact names lose to the formatter', () => {
+  it('formats the number instead of echoing the E.164 placeholder', () => {
+    expect(
+      conversationName({
+        contactName: '+16268233242',
+        contactAddress: '+16268233242',
+        chatGuid: 'iMessage;-;+16268233242',
+      }),
+    ).toBe('(626) 823-3242');
+  });
+
+  it('ignores a placeholder written in any format', () => {
+    expect(
+      conversationName({
+        contactName: '1(626)823-3242',
+        contactAddress: '+16268233242',
+      }),
+    ).toBe('(626) 823-3242');
+  });
+
+  it('still prefers a name a human actually gave them', () => {
+    expect(
+      conversationName({ contactName: 'Karla Ojeda', contactAddress: '+16268233242' }),
+    ).toBe('Karla Ojeda');
+  });
+
+  it('takes initials from the digits, not from a placeholder name', () => {
+    expect(
+      nameForInitials({ contactName: '+16268233242', contactAddress: '+16268233242' }),
+    ).toBe('42');
+  });
+});

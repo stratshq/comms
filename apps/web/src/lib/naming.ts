@@ -43,6 +43,17 @@ export function formatAddress(address: string | null | undefined): string | null
 }
 
 /**
+ * Is this contact name a real name, or the address wearing one?
+ *
+ * Imported rather than reimplemented: ingest names every new contact after
+ * its own phone number, and the classifier already has to know the
+ * difference. `@comms/core/correspondent` is a zero-import subpath, so this
+ * module stays safe in client components.
+ */
+import { isRealContactName as isRealName } from '@comms/core/correspondent';
+export { isRealName as isRealContactName };
+
+/**
  * The address embedded in a BlueBubbles chat GUID (`iMessage;-;+15551234567`).
  *
  * This is the last line of defence for naming: it needs no contact row, no
@@ -105,12 +116,16 @@ export function conversationName(c: NameableConversation): string {
     return 'Group conversation';
   }
 
-  const contactName = present(c.contactName);
-  if (contactName) return contactName;
+  const address = conversationAddress(c);
 
-  // A phone number beats a generic placeholder for a 1:1 thread.
-  const address = formatAddress(conversationAddress(c));
-  if (address) return address;
+  // A contact named after its own number is not a name. Preferring it here
+  // rendered threads as a raw `+16268233242` when `(626) 823-3242` was one
+  // call away — the placeholder outranked the formatter.
+  const contactName = present(c.contactName);
+  if (contactName && isRealName(contactName, [address, c.contactAddress])) return contactName;
+
+  const formatted = formatAddress(address);
+  if (formatted) return formatted;
   if (title) return title;
   return 'Unknown contact';
 }
@@ -122,9 +137,10 @@ export function nameForInitials(c: NameableConversation): string {
     const t = present(c.title);
     return t && t.toLowerCase() !== GROUP_PLACEHOLDER ? t : 'Group';
   }
+  const address = conversationAddress(c);
   const contactName = present(c.contactName);
-  if (contactName) return contactName;
-  const digits = conversationAddress(c)?.replace(/\D/g, '');
+  if (contactName && isRealName(contactName, [address, c.contactAddress])) return contactName;
+  const digits = address?.replace(/\D/g, '');
   // Last two digits read better than "UN" repeated down the list.
   if (digits && digits.length >= 2) return digits.slice(-2);
   return present(c.title) ?? '?';
